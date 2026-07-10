@@ -35,8 +35,6 @@ export interface VerticalMeta {
   label: string
   icon: LucideIcon
   blurb: string
-  /** Photo behind the vertical card (optional — falls back to a solid tint). */
-  image?: string
 }
 
 // Ordered so the productized, instant-quote-heavy verticals lead — that's the
@@ -47,56 +45,48 @@ export const VERTICALS: VerticalMeta[] = [
     label: VERTICAL_LABELS.lawn,
     icon: Sprout,
     blurb: "Multi-visit lawn programs, aeration, seeding & grub control.",
-    image: "/images/sat/lawn.jpg",
   },
   {
     id: "plant_health",
     label: VERTICAL_LABELS.plant_health,
     icon: Leaf,
     blurb: "Deep-root fertilization, disease & pest treatment for trees & shrubs.",
-    image: "/images/sat/plant-health.jpg",
   },
   {
     id: "tick",
     label: VERTICAL_LABELS.tick,
     icon: Bug,
     blurb: "Seasonal tick & mosquito barrier treatments for your property.",
-    image: "/images/sat/tick.jpg",
   },
   {
     id: "trees_shrubs",
     label: VERTICAL_LABELS.trees_shrubs,
     icon: Trees,
     blurb: "Pruning, removal, cabling & storm response by certified arborists.",
-    image: "/images/sat/trees.jpg",
   },
   {
     id: "deer",
     label: VERTICAL_LABELS.deer,
     icon: Shield,
     blurb: "Patented multi-layer deer repellent programs to protect plantings.",
-    image: "/images/sat/deer.jpg",
   },
   {
     id: "landscape",
     label: VERTICAL_LABELS.landscape,
     icon: Flower2,
     blurb: "Design, installation & ongoing maintenance of beds and plantings.",
-    image: "/images/sat/landscape.jpg",
   },
   {
     id: "holiday",
     label: VERTICAL_LABELS.holiday,
     icon: Sparkles,
     blurb: "Custom holiday lighting design, install, takedown & storage.",
-    image: "/images/sat/holiday.jpg",
   },
   {
     id: "commercial",
     label: VERTICAL_LABELS.commercial,
     icon: Building2,
     blurb: "Tree, shrub & landscape programs for commercial and municipal sites.",
-    image: "/images/sat/commercial.jpg",
   },
 ]
 

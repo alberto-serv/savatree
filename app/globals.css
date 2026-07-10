@@ -1,0 +1,234 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ── SavATree brand tokens, mapped to the shadcn HSL token layer ──
+       Hex equivalents (from the brand guidelines):
+       forest #1B5C34 · leaf #17AB2D · amber #FFA500 · text #1F1C1D
+       body #46524A · line #E3E8E1 · sky #E6F4EA                      */
+
+    /* Pure white page — whitespace is a brand asset */
+    --background: 0 0% 100%;
+    --foreground: 147 55% 23%; /* forest #1B5C34 */
+
+    --card: 0 0% 100%;
+    --card-foreground: 147 55% 23%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 147 55% 23%;
+
+    /* Primary — SavATree leaf green. Text on it is white. */
+    --primary: 132 76% 40%; /* #17AB2D */
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary — brand forest green */
+    --secondary: 147 55% 23%; /* #1B5C34 */
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 130 24% 96%; /* soft green paper tint */
+    --muted-foreground: 150 8% 42%; /* #647065-ish */
+
+    /* Accent — forest */
+    --accent: 147 55% 23%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 120 12% 90%; /* #E3E8E1 soft green line */
+    --input: 120 12% 86%; /* input border */
+    --ring: 132 76% 40%;
+
+    --radius: 0.25rem; /* 4px — SavATree brand radius */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    line-height: 1.62;
+  }
+  /* Page & section headings ride the brand display face: an elegant, high-
+     contrast serif (Perfectly Nineties → Fraunces), normal case. Subheads
+     (h3–h6) stay in the grotesque body face by design. */
+  h1,
+  h2 {
+    font-family: var(--font-fraunces), Georgia, serif;
+    font-weight: 600;
+    line-height: 1.04;
+    letter-spacing: -0.015em;
+  }
+}
+
+/* ── SavATree brand component primitives ──────────────────────────────────── */
+@layer components {
+  /* Display type — every heading, page/section/card title. High-contrast
+     serif, normal case, tight-ish leading. */
+  .disp {
+    font-family: var(--font-fraunces), Georgia, serif;
+    font-weight: 600;
+    line-height: 1.04;
+    letter-spacing: -0.015em;
+  }
+
+  /* Buttons — squared-off (4–8px), grotesque body face, semibold. */
+  .btn-pill {
+    @apply inline-flex items-center justify-center gap-2.5 rounded-lg px-8 py-[15px] text-base font-bold leading-none transition-all duration-150;
+  }
+  .btn-pill:hover {
+    transform: translateY(-1px);
+  }
+  .btn-pill:disabled {
+    @apply opacity-45;
+    transform: none;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+  /* Primary CTA — leaf green fill, white text. */
+  .btn-orange {
+    @apply btn-pill bg-orange text-white shadow-orange-glow;
+  }
+  .btn-orange:hover {
+    @apply bg-orange-deep;
+  }
+  /* Forest-green secondary button. */
+  .btn-navy {
+    @apply btn-pill bg-navy text-white;
+  }
+  .btn-navy:hover {
+    @apply bg-navy-deep;
+  }
+  .btn-ghost-brand {
+    @apply btn-pill border-2 border-navy bg-white text-navy;
+  }
+
+  /* Numbered step badge — leaf-green circle, white numeral. */
+  .step-num {
+    @apply inline-flex items-center justify-center rounded-full bg-orange text-white font-extrabold;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    font-size: 15px;
+  }
+
+  /* Eyebrow / overline — uppercase, tracked. */
+  .eyebrow {
+    @apply font-bold uppercase text-muted-foreground;
+    letter-spacing: 0.14em;
+    font-size: 11px;
+  }
+
+  /* Brand badge — warm amber fill, forest text (the "pop"). */
+  .brand-badge {
+    @apply inline-block rounded-full bg-gold uppercase text-navy font-extrabold;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    padding: 4px 10px;
+  }
+}
+
+/* ── Premium motion primitives (used by the /medical landing page) ───────── */
+@layer utilities {
+  /* Scroll-reveal: hidden until .is-visible is toggled by an observer */
+  .reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+  }
+  .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Edge-to-edge fade mask for marquees */
+  .marquee-mask {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 8%,
+      black 92%,
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 8%,
+      black 92%,
+      transparent
+    );
+  }
+
+  .animate-marquee {
+    animation: marquee 32s linear infinite;
+  }
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  .animate-float-slow {
+    animation: float 9s ease-in-out infinite;
+  }
+  .text-gradient {
+    background: linear-gradient(
+      92deg,
+      hsl(132 76% 40%),
+      hsl(132 66% 50%),
+      hsl(132 76% 40%)
+    );
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: shimmer 6s linear infinite;
+  }
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes shimmer {
+  to {
+    background-position: 200% center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .animate-marquee,
+  .animate-float,
+  .animate-float-slow,
+  .text-gradient {
+    animation: none;
+  }
+}

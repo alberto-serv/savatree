@@ -1,101 +1,56 @@
-# Heroes Lawn Care
+# SavATree — Service Estimator Prototype
 
-A modern lawn care service booking platform built with Next.js 14, TypeScript, and Tailwind CSS.
+A prototype tree, shrub, lawn, and plant-health-care estimator for SavATree, built
+with Next.js 14, TypeScript, and Tailwind CSS. Adapted from the Anago commercial
+cleaning flow into a **service-driven** estimator.
 
-## Features
+## The flow
 
-- 🏡 Address-based service quotes
-- 📍 Geolocation support
-- 📦 Three-tier package system (Bronze, Silver, Gold)
-- 📱 Fully responsive design
-- ✨ Modern UI with shadcn/ui components
-- 🎨 Tailwind CSS styling
-- 📝 Form validation with React Hook Form
-- 🔒 Type-safe with TypeScript
+1. **Pick a category** — one of eight verticals (Lawn Care, Plant Health Care,
+   Tick & Mosquito, Trees & Shrubs, Deer Control, Landscape, Holiday, Commercial).
+2. **Pick a service** — each is tagged **Instant** (books online with an instant
+   estimate) or **Consult** (scoped by a certified arborist on site).
+3. **Configure** — the estimator renders that service's own input schema
+   (`quoteInputs`): a property-size slider, number steppers (tree / stump counts),
+   option pills, program-tier cards, and add-on toggles.
+4. **Estimate → Book**, or, for assessment-gated services, **Request a
+   Consultation** via an inline arborist form.
 
-## Getting Started
+## Architecture
 
-### Prerequisites
+- `lib/savatree-catalog.ts` — single source of truth: the service catalog, pricing
+  models, and the `generateQuote()` engine. SavATree publishes no public pricing,
+  so figures are 2026 market-benchmark seed values (see the disclaimer in-file).
+- `lib/savatree-services.ts` — presentation layer: vertical metadata (icon, blurb,
+  ordering) and view helpers over the catalog.
+- `app/page.tsx` — the vertical → service → dynamic-input estimator.
+- `app/checkout/` — booking + confirmation for instant-quote services.
+- `app/contact/` — standalone consultation request.
 
-- Node.js 18+ 
-- pnpm (recommended) or npm
+Two fulfillment paths run off one data layer: `instant_quote` (bookable) and
+`consultation` (arborist-assessed). There are 32 services (16 instant, 16
+consultation) across the eight verticals.
 
-### Installation
+## Branding
 
-1. Clone the repository
-2. Install dependencies:
+SavATree green palette (forest `#1B5C34`, leaf `#17AB2D`, amber `#FFA500`) with an
+elegant serif display face. Fonts are close free stand-ins for the licensed brand
+faces: **Fraunces** for Perfectly Nineties (display) and **Manrope** for F37 Zagma
+(body) — swap in the real `@font-face` files when available.
+
+## Getting started
 
 ```bash
-pnpm install
+npm install
+npm run dev
 ```
 
-3. Run the development server:
+Open [http://localhost:3000](http://localhost:3000).
 
-```bash
-pnpm dev
-```
+## Scripts
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser
-
-## Available Scripts
-
-- `pnpm dev` - Start development server
-- `pnpm build` - Build for production
-- `pnpm start` - Start production server
-- `pnpm lint` - Run ESLint
-- `pnpm lint:fix` - Fix ESLint errors automatically
-- `pnpm format` - Format code with Prettier
-- `pnpm format:check` - Check code formatting
-- `pnpm type-check` - Run TypeScript type checking
-
-## Project Structure
-
-```
-├── app/                    # Next.js app directory
-│   ├── about/             # About page
-│   ├── checkout/          # Checkout flow
-│   ├── contact/           # Contact page
-│   ├── services/          # Services page
-│   ├── layout.tsx         # Root layout
-│   └── page.tsx           # Homepage
-├── components/            # Reusable React components
-│   ├── ui/               # shadcn/ui components
-│   ├── footer.tsx
-│   ├── header.tsx
-│   └── navbar.tsx
-├── lib/                   # Utility functions
-├── public/               # Static assets
-└── styles/               # Global styles
-```
-
-## Tech Stack
-
-- **Framework:** Next.js 14 (App Router)
-- **Language:** TypeScript
-- **Styling:** Tailwind CSS
-- **UI Components:** shadcn/ui + Radix UI
-- **Forms:** React Hook Form + Zod
-- **Icons:** Lucide React
-- **Deployment:** Vercel (recommended)
-
-## Code Quality
-
-This project uses:
-- **ESLint** for code linting
-- **Prettier** for code formatting
-- **TypeScript** for type safety
-
-Run `pnpm lint` and `pnpm format` before committing changes.
-
-## Deployment
-
-The easiest way to deploy is using [Vercel](https://vercel.com):
-
-1. Push your code to GitHub
-2. Import your repository in Vercel
-3. Vercel will automatically detect Next.js and configure the build
-4. Deploy!
-
-## License
-
-Private - All rights reserved
+- `npm run dev` — start the dev server
+- `npm run build` — production build
+- `npm start` — serve the production build
+- `npm run type-check` — TypeScript check
+- `npm run lint` — ESLint

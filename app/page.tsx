@@ -27,7 +27,7 @@ import {
   estimateTreeWork, triageEmergency,
   type TreeInputs, type TreeJob, type Confidence,
 } from "@/lib/tree-care"
-import { CA_SPECIES, type TreeSpecies } from "@/lib/california-trees"
+import { CA_SPECIES, speciesAdvisory, type TreeSpecies } from "@/lib/california-trees"
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -820,6 +820,9 @@ function TreeEstimator({ project, job }: { project: Project; job: TreeJob }) {
   const est = useMemo(() => estimateTreeWork(inputs), [inputs])
   const conf = CONFIDENCE_COPY[est.confidence]
 
+  // Known from the species alone — no size, no price required.
+  const advisory = inputs.species ? speciesAdvisory(inputs.species, job) : null
+
   // The model decides the route; the page only obeys it. A hazardous or oversized
   // job books the arborist, never the work.
   const go = () => {
@@ -861,6 +864,24 @@ function TreeEstimator({ project, job }: { project: Project; job: TreeJob }) {
             onChange={(v) => set("species", v as TreeSpecies)}
             columns={4}
           />
+          {/* Answered here, not buried in the estimate below the fold. If the
+              city can refuse this job, that's the first thing they should learn
+              about their oak — not the last. */}
+          {advisory && (
+            <div
+              className={`mt-6 max-w-2xl mx-auto rounded-xl border-2 p-5 ${
+                advisory.mayBeDenied ? "border-gold/40 bg-gold/10" : "border-line bg-brand-band-soft"
+              }`}
+            >
+              <p className="mb-2 flex items-start gap-2 text-[15px] font-bold leading-snug text-navy">
+                {advisory.mayBeDenied
+                  ? <Shield className="mt-0.5 w-[18px] h-[18px] shrink-0 text-gold-deep" />
+                  : <Info className="mt-0.5 w-[18px] h-[18px] shrink-0 text-orange" />}
+                {advisory.headline}
+              </p>
+              <p className="text-[13.5px] leading-relaxed text-body">{advisory.body}</p>
+            </div>
+          )}
         </div>
 
         <div className="p-7 md:p-9">

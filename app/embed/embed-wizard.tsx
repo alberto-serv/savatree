@@ -45,7 +45,10 @@ import {
   type Vertical, type TierLevel, type PlantSize, type PropertyInputs, type Project,
 } from "@/lib/savatree-catalog"
 import { estimateTreeWork, type TreeInputs, type TreeJob } from "@/lib/tree-care"
-import { CA_SPECIES, type TreeSpecies, type PermitAssessment } from "@/lib/california-trees"
+import {
+  CA_SPECIES, speciesAdvisory,
+  type TreeSpecies, type PermitAssessment, type SpeciesAdvisory,
+} from "@/lib/california-trees"
 
 // ─── Flow ─────────────────────────────────────────────────────────────────────
 
@@ -254,6 +257,9 @@ export function EmbedWizard() {
     () => (project?.id === "stump_grinding" ? quoteProject(project.id, inputs) : null),
     [project, inputs],
   )
+
+  // Available before there's a size, and therefore before there's a price.
+  const speciesNotice = job && tree.species ? speciesAdvisory(tree.species, job) : null
 
   // ── Navigation ──
   const selectVertical = (v: Vertical) => {
@@ -485,6 +491,10 @@ export function EmbedWizard() {
                   onChange={(v) => setTreeInput("species", v)}
                   columns={2}
                 />
+                {/* Said the instant they tap Oak, not four screens later at the
+                    price. The permit, the weeks, and the chance of a flat refusal
+                    are what change a customer's mind — make them cheap to learn. */}
+                {speciesNotice && <SpeciesNotice advisory={speciesNotice} />}
               </Screen>
             )}
 
@@ -987,6 +997,31 @@ function Band({ price, eyebrow, lines }: { price: string; eyebrow: string; lines
 
 function Disclaimer({ text }: { text: string }) {
   return <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground">{text}</p>
+}
+
+/**
+ * The early warning, shown on the species screen itself. Amber when the city can
+ * refuse the job, calm green when the species is protected but this particular
+ * job isn't in jeopardy — a pruning customer shouldn't be alarmed by a rule that
+ * doesn't threaten them.
+ */
+function SpeciesNotice({ advisory }: { advisory: SpeciesAdvisory }) {
+  const alarming = advisory.mayBeDenied
+  return (
+    <div
+      className={`mt-5 rounded-[14px] border-2 p-5 ${
+        alarming ? "border-gold/50 bg-gold/10" : "border-transparent bg-white"
+      }`}
+    >
+      <p className="mb-2 flex items-start gap-2 text-[14px] font-bold leading-snug text-navy">
+        {alarming
+          ? <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-gold-deep" />
+          : <Info className="mt-0.5 h-4 w-4 shrink-0 text-orange" />}
+        {advisory.headline}
+      </p>
+      <p className="text-[13px] leading-relaxed text-body">{advisory.body}</p>
+    </div>
+  )
 }
 
 /**

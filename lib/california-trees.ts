@@ -99,6 +99,21 @@ const SPECIES_LABEL: Record<TreeSpecies, string> = CA_SPECIES.reduce(
   {} as Record<TreeSpecies, string>,
 );
 
+/**
+ * A tile label is a noun on a button; it is not a word you can drop into a
+ * sentence. "Removing a Oak" and "Other CA natives are protected" are what you
+ * get when you try. Protected species carry their own grammar.
+ */
+const SPECIES_COPY: Partial<Record<TreeSpecies, { one: string; noun: string; plural: string }>> = {
+  native_oak: { one: "an oak", noun: "oak", plural: "Oaks" },
+  coast_redwood: { one: "a redwood", noun: "redwood", plural: "Redwoods" },
+  other_native: {
+    one: "a native sycamore, bay, or buckeye",
+    noun: "native",
+    plural: "Native sycamores, bays, and buckeyes",
+  },
+};
+
 // ─────────────────────────────────────────────────────────────────
 // What the permit process costs
 // ─────────────────────────────────────────────────────────────────
@@ -174,16 +189,16 @@ export function assessProtection(i: ProtectionInputs): PermitAssessment {
   const basis: ProtectionBasis =
     species === "unknown" && !byHeritage ? "unidentified" : bySpecies ? "species" : "heritage_size";
 
-  const label = SPECIES_LABEL[species];
+  const copy = SPECIES_COPY[species];
   const reasons: string[] = [];
 
   if (basis === "unidentified") {
     reasons.push(
       `We don't know what this tree is yet. If it's a native oak or a redwood, it's almost certainly protected — your arborist identifies it on the first visit.`,
     );
-  } else if (bySpecies) {
+  } else if (bySpecies && copy) {
     reasons.push(
-      `${label}s of this size (${dbhInches}" trunk) are protected by ordinance in most California cities.`,
+      `${copy.plural} of this size (${dbhInches}" trunk) are protected by ordinance in most California cities.`,
     );
   }
   if (byHeritage && !bySpecies) {
@@ -285,7 +300,7 @@ export function assessProtection(i: ProtectionInputs): PermitAssessment {
       "Removal needs a city permit, which means an arborist report and a review period — plan on weeks, not days.",
       ...(mayBeDenied
         ? [
-            `A healthy protected ${basis === "unidentified" ? "tree" : label.toLowerCase()} is often DENIED. Cities want it pruned or treated, not removed. Your arborist will tell you honestly whether this application has a chance before you pay for one.`,
+            `A healthy protected ${copy?.noun ?? "tree"} is often DENIED. Cities want it pruned or treated, not removed. Your arborist will tell you honestly whether this application has a chance before you pay for one.`,
           ]
         : []),
     ],
@@ -293,6 +308,76 @@ export function assessProtection(i: ProtectionInputs): PermitAssessment {
     lines,
     weeks: mayBeDenied ? [4, 12] : [3, 8],
     mayBeDenied,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// The heads-up, before we know the size
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * What we can say the INSTANT someone tells us it's an oak — before they've told
+ * us how big it is, and long before there's a price on screen.
+ *
+ * Protection depends on trunk diameter, which we don't have yet, so this cannot
+ * claim the tree IS protected. It states the threshold and lets the customer do
+ * the arithmetic on their own tree: "most oaks in a yard clear 6 inches" is a
+ * conclusion they can reach faster than we can.
+ *
+ * Withholding this until the final estimate would be a small con: the permit,
+ * the weeks of review, and the real chance of a flat refusal are the facts most
+ * likely to change what the customer wants to do, and they should have them
+ * before they answer four more questions.
+ *
+ * null for species that carry no ordinance risk of their own. Those can still be
+ * protected by SIZE once the diameter is known — assessProtection() catches that.
+ */
+export interface SpeciesAdvisory {
+  headline: string;
+  body: string;
+  /** True when a city can refuse the job outright. Changes the whole conversation. */
+  mayBeDenied: boolean;
+}
+
+export function speciesAdvisory(species: TreeSpecies, job: TreeJob): SpeciesAdvisory | null {
+  const threshold = SPECIES_PROTECTED_AT_DBH[species];
+  if (threshold === null) return null;
+
+  if (species === "unknown") {
+    return {
+      headline: "Worth identifying before anything else",
+      body:
+        job === "removal"
+          ? "If it turns out to be a native oak or a coast redwood, most California cities protect it — and removal would then need a permit, an arborist report, and weeks of city review, and can be refused outright. Your arborist identifies it on the first visit, free. Until then we assume it might be protected, so the estimate stays wide."
+          : "If it turns out to be a native oak or a coast redwood, most California cities protect it — which can cap how much canopy comes off in one go. Nothing here stops the work; it just changes how it's done. Your arborist identifies it on the first visit, free.",
+      mayBeDenied: job === "removal",
+    };
+  }
+
+  const copy = SPECIES_COPY[species];
+  if (!copy) return null;
+
+  if (job === "cabling") {
+    return {
+      headline: `${copy.plural} are protected in most California cities`,
+      body:
+        "Good news for this job: cabling preserves the tree, so no removal permit is involved — and on a protected tree it's frequently what the city would rather you did anyway.",
+      mayBeDenied: false,
+    };
+  }
+
+  if (job === "pruning") {
+    return {
+      headline: `${copy.plural} are protected in most California cities`,
+      body: `Once the trunk is about ${threshold}" across, ordinances typically cap how much canopy may be taken off in one go, and heavy pruning can need a permit of its own. Routine, correct pruning is almost always fine — and it's the work cities prefer to see on a protected tree.`,
+      mayBeDenied: false,
+    };
+  }
+
+  return {
+    headline: `Removing ${copy.one} in California usually needs the city's permission`,
+    body: `Once the trunk is about ${threshold}" across — which most yard ${copy.noun}s are — removal requires a city permit, an arborist report, and a review period measured in weeks, not days. And a healthy protected ${copy.noun} is often DENIED: cities want it pruned or treated, not removed. We'll price the permit with the job, and your arborist will tell you honestly whether an application has a chance before you pay for one.`,
+    mayBeDenied: true,
   };
 }
 

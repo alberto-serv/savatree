@@ -12,6 +12,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { estimateTreeWork, triageEmergency } from "./tree-care";
+import { speciesAdvisory } from "./california-trees";
 
 // ─── Anchor 1 — real quote: large tree pruning, $3,890 ────────────────────────
 // A ~70 ft specimen over a target, moderate access. A job at that price is at
@@ -271,6 +272,40 @@ test("CA: omitting the species leaves the model exactly as it was", () => {
   // A non-protected species must price identically to no species at all.
   const notProtected = estimateTreeWork({ ...base, species: "palm" });
   assert.deepEqual(notProtected.estimate, withoutSpecies.estimate);
+});
+
+test("CA: the species warning arrives before the size does — and never contradicts it", () => {
+  // The whole point: this is knowable from the species alone. No size, no price.
+  const oak = speciesAdvisory("native_oak", "removal")!;
+  assert.ok(oak, "picking oak must tell the customer something immediately");
+  assert.equal(oak.mayBeDenied, true);
+  assert.match(oak.body, /permit/i);
+  assert.match(oak.body, /DENIED/);
+
+  // It must agree with the assessment the customer meets four screens later.
+  const full = estimateTreeWork({
+    job: "removal", heightFt: 40, diameterInches: 14, species: "native_oak",
+  });
+  assert.equal(full.permit?.mayBeDenied, oak.mayBeDenied, "the early warning must not overpromise or overscare");
+
+  // A pruning customer is warned, but not alarmed — the city isn't going to stop them.
+  const pruning = speciesAdvisory("native_oak", "pruning")!;
+  assert.equal(pruning.mayBeDenied, false);
+  assert.doesNotMatch(pruning.body, /DENIED/);
+
+  // Cabling preserves the tree. The "warning" is actually encouragement.
+  const cabling = speciesAdvisory("native_oak", "cabling")!;
+  assert.equal(cabling.mayBeDenied, false);
+  assert.match(cabling.body, /no removal permit/i);
+
+  // Species with no ordinance risk of their own say nothing here. They can still
+  // be caught by heritage SIZE later, once the diameter is known.
+  assert.equal(speciesAdvisory("palm", "removal"), null);
+  assert.equal(speciesAdvisory("fruit_ornamental", "removal"), null);
+
+  // "Not sure" prompts identification rather than a false all-clear.
+  const unknown = speciesAdvisory("unknown", "removal")!;
+  assert.match(unknown.body, /oak or a coast redwood/i);
 });
 
 test("count scales the job; stump grinding only attaches to removals", () => {

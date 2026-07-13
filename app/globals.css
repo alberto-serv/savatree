@@ -137,6 +137,28 @@
   }
 }
 
+/* ── Embed widget ─────────────────────────────────────────────────────────
+   /embed is transparent by default: inside a customer's iframe the widget must
+   sit on THEIR background. The widget adds .embed-standalone to <html> only
+   when it is the top-level document — that's when we paint a brand backdrop
+   behind the card so the route is presentable on its own. */
+@layer components {
+  /* Framed, the wrapper hugs the card — a min-height would pad the host's
+     iframe with empty space it paid for. Standalone, it fills the viewport. */
+  .embed-standalone .frame-standalone {
+    min-height: 100vh;
+    background-color: #123f24;
+    background-image: linear-gradient(
+        180deg,
+        rgba(18, 63, 36, 0.82),
+        rgba(27, 92, 52, 0.72)
+      ),
+      url("/images/hero.webp");
+    background-size: cover;
+    background-position: center;
+  }
+}
+
 /* ── Premium motion primitives (used by the /medical landing page) ───────── */
 @layer utilities {
   /* Scroll-reveal: hidden until .is-visible is toggled by an observer */

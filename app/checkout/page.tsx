@@ -12,30 +12,12 @@ import {
 } from "lucide-react"
 import { addonsForProgram, money } from "@/lib/savatree-services"
 import { getProgram, type TierLevel, type Addon } from "@/lib/savatree-catalog"
-
-// ─── Scheduling helpers ───────────────────────────────────────────────────────
-
-const TIME_SLOTS = [
-  { id: "morning", label: "Morning", time: "8:00 – 11:00 AM" },
-  { id: "mid-day", label: "Mid-Day", time: "11:00 AM – 2:00 PM" },
-  { id: "afternoon", label: "Afternoon", time: "2:00 – 5:00 PM" },
-]
-
-function getAvailableDates(): Date[] {
-  const dates: Date[] = []
-  const cursor = new Date()
-  cursor.setDate(cursor.getDate() + 1)
-  while (dates.length < 14) {
-    const day = cursor.getDay()
-    if (day !== 0 && day !== 6) dates.push(new Date(cursor))
-    cursor.setDate(cursor.getDate() + 1)
-  }
-  return dates
-}
-
-function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
-}
+import {
+  ARRIVAL_WINDOWS as TIME_SLOTS,
+  getAvailableDates,
+  isSameDay,
+  formatVisitDate,
+} from "@/lib/scheduling"
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -214,8 +196,6 @@ export default function CheckoutPage() {
   const priceText = quote.high !== quote.low ? `$${money(quote.low)} – $${money(quote.high)}` : `$${money(quote.low)}`
   const suffix = isProgram ? "/yr" : ""
   const canBook = customerInfo.firstName && customerInfo.lastName && customerInfo.email && phoneNumber.trim() && selectedDate && selectedTimeSlot && serviceAddress
-
-  const formatVisitDate = (date: Date) => date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
 
   const handleBook = useCallback(async () => {
     setIsLoading(true)

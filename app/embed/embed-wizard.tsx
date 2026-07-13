@@ -326,9 +326,41 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
     : screen === "contact" ? Boolean(contact.firstName && contact.lastName && contact.email && contact.phone && contact.address)
     : screen !== "emergency"
 
+  // Answering a question can CREATE the screens that follow it — picking a service
+  // is what earns the questions. So the step clamp has to read the flow as it is
+  // when we advance, not the shorter flow that existed at the moment of the click.
+  // (Auto-advance fires from a timer, so the difference is not theoretical: clamped
+  // against the stale list, selecting a service would pin the wizard on screen one.)
+  const screensRef = useRef(screens)
+  screensRef.current = screens
+
   const isLast = screen === "contact"
-  const next = () => (isLast ? setSubmitted(true) : setStep((s) => Math.min(s + 1, screens.length - 1)))
+  const next = () =>
+    isLast
+      ? setSubmitted(true)
+      : setStep((s) => Math.min(s + 1, screensRef.current.length - 1))
   const back = () => setStep((s) => Math.max(0, s - 1))
+
+  /**
+   * A single-choice question answers itself: tapping the tile IS the decision, and
+   * making the customer confirm it with a second tap on Next is a tax on every
+   * screen. So a choice advances the wizard on its own.
+   *
+   * The pause is not decoration — it's long enough for the selected state to land,
+   * so the customer sees WHICH answer they gave before the screen moves. Advancing
+   * instantly reads as a glitch.
+   *
+   * Callers pass `false` when the choice revealed something to read (a protected
+   * oak, a video-call caveat). Auto-advancing past information the customer asked
+   * for by tapping is worse than a wasted click.
+   */
+  const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const chose = (shouldAdvance = true) => {
+    if (!shouldAdvance) return
+    if (advanceTimer.current) clearTimeout(advanceTimer.current)
+    advanceTimer.current = setTimeout(next, 260)
+  }
+  useEffect(() => () => { if (advanceTimer.current) clearTimeout(advanceTimer.current) }, [])
 
   // Preselect a service from the host page: /embed?service=lawn drops the
   // customer straight into the questions for the page they were already reading.
@@ -399,7 +431,7 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
                     return (
                       <button
                         key={id}
-                        onClick={() => selectVertical(id)}
+                        onClick={() => { selectVertical(id); chose() }}
                         aria-pressed={selected}
                         className={`flex items-center gap-3 rounded-xl px-4 py-4 text-left transition-all duration-150 ${
                           selected
@@ -427,7 +459,7 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
                     return (
                       <button
                         key={p.id}
-                        onClick={() => selectProject(p)}
+                        onClick={() => { selectProject(p); chose() }}
                         aria-pressed={selected}
                         className={`rounded-xl px-4 py-3.5 text-left transition-all duration-150 ${
                           selected ? "bg-navy text-white shadow-brand-sm" : "bg-white hover:shadow-brand-sm"
@@ -486,7 +518,7 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
                 <Choices
                   choices={PLANT_SIZES.map((s) => ({ value: s.value, label: s.label, detail: s.detail }))}
                   value={inputs.plantSize ?? "medium"}
-                  onChange={(v) => setInput("plantSize", v as PlantSize)}
+                  onChange={(v) => { setInput("plantSize", v as PlantSize); chose() }}
                   columns={2}
                 />
               </Screen>
@@ -504,7 +536,7 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
                     },
                   ]}
                   value={inputs.organic ? "organic" : "traditional"}
-                  onChange={(v) => setInput("organic", v === "organic")}
+                  onChange={(v) => { setInput("organic", v === "organic"); chose() }}
                   columns={2}
                 />
               </Screen>
@@ -518,7 +550,12 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
                 <Choices
                   choices={CA_SPECIES.map((s) => ({ value: s.id, label: s.label, detail: s.detail }))}
                   value={tree.species ?? ("" as TreeSpecies)}
-                  onChange={(v) => setTreeInput("species", v)}
+                  onChange={(v) => {
+                    setTreeInput("species", v)
+                    // A palm has nothing to tell them, so move on. An oak just put a
+                    // permit warning on this screen — leave it up and let them read it.
+                    chose(!(job && speciesAdvisory(v, job, cfg.permit)))
+                  }}
                   columns={2}
                 />
                 {/* Said the instant they tap Oak, not four screens later at the
@@ -580,7 +617,11 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
 
             {screen === "treeAccess" && (
               <Screen title="Can a truck get to it?" help="Access is the single biggest cost driver on a tree job.">
-                <Choices choices={ACCESS_CHOICES} value={tree.access ?? "moderate"} onChange={(v) => setTreeInput("access", v)} />
+                <Choices
+                  choices={ACCESS_CHOICES}
+                  value={tree.access ?? "moderate"}
+                  onChange={(v) => { setTreeInput("access", v); chose() }}
+                />
               </Screen>
             )}
 
@@ -711,7 +752,14 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
                     return (
                       <button
                         key={o.value}
-                        onClick={() => chooseVisit(o.value)}
+                        onClick={() => {
+                          chooseVisit(o.value)
+                          // Picking video on a job an arborist has to see in person
+                          // raises a caveat right here. Don't skip past it.
+                          const caveat =
+                            o.value === "video" && (treeEstimate?.needsArboristBecause.length ?? 0) > 0
+                          chose(!caveat)
+                        }}
                         aria-pressed={selected}
                         // A <button> vertically centers its content, which floats the
                         // shorter card's text out of line with the taller one. Be explicit.
@@ -819,7 +867,10 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
                           <button
                             key={s.id}
                             type="button"
-                            onClick={() => setSlotId(s.id)}
+                            // The slot is the last thing this screen needs — a day
+                            // was already chosen to get here. Picking it completes
+                            // the screen, so the screen moves on.
+                            onClick={() => { setSlotId(s.id); chose() }}
                             aria-pressed={selected}
                             className={`rounded-xl border-2 px-3 py-3 text-center transition-all ${
                               selected ? "border-orange bg-brand-select" : "border-transparent bg-white hover:border-[#c7d6ca]"
@@ -1068,7 +1119,7 @@ function TierRow({
         aria-expanded={expanded}
         className="flex w-full items-center gap-1 px-4 pb-3.5 text-[12px] font-bold text-orange-deep hover:underline"
       >
-        {expanded ? "Hide the visits" : `See all ${tier.visitsPerYear} visits`}
+        {expanded ? "Hide details" : "See more details"}
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
       </button>
 

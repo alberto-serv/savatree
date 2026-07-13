@@ -37,7 +37,7 @@ import {
   type VisitType, type TimeSlot,
 } from "@/lib/scheduling"
 import {
-  VERTICALS, getVerticalMeta, programForVertical, projectsForVertical,
+  getVerticalMeta, programForVertical, projectsForVertical,
   BASIS_CONFIG, PLANT_SIZES, money, bandText, summarizeInputs,
 } from "@/lib/savatree-services"
 import {
@@ -82,6 +82,21 @@ const PHASE_OF: Record<ScreenId, Phase> = {
 
 /** What the rail promises before we know enough to promise anything specific. */
 const DEFAULT_PHASES: Phase[] = ["Service", "Details", "Estimate", "Schedule", "Contact"]
+
+/**
+ * The service tiles, in the order the widget offers them — tree work first,
+ * because it's what a homeowner is looking at when they decide to call someone.
+ *
+ * This is deliberately its own list rather than VERTICALS in catalog order:
+ *  - Commercial is absent. The contact step already asks residential vs
+ *    commercial, and an HOA or a campus does not scope itself through a
+ *    six-question wizard — it gets a salesperson. The catalog keeps the
+ *    commercial projects; the embed simply doesn't sell them.
+ *  - The pairing matters. The grid fills row-wise, so each row reads as a pair:
+ *    trees & lawn, plants & pests, deer & decor.
+ */
+const SERVICE_ORDER: Vertical[] = ["tree_work", "lawn", "plant_health", "pest", "deer", "landscape"]
+const SERVICES = SERVICE_ORDER.map(getVerticalMeta)
 
 /** Catalog projects the tree-care model can actually price. Everything else consults. */
 const TREE_JOBS: Record<string, TreeJob> = {
@@ -267,8 +282,10 @@ export function EmbedWizard() {
   // Preselect a service from the host page: /embed?service=lawn drops the
   // customer straight into the questions for the page they were already reading.
   useEffect(() => {
+    // Guarded against SERVICE_ORDER, not the whole catalog — ?service=commercial
+    // must not deep-link into a flow the tiles deliberately don't offer.
     const requested = params.get("service") as Vertical | null
-    if (requested && VERTICALS.some((v) => v.id === requested)) {
+    if (requested && SERVICE_ORDER.includes(requested)) {
       selectVertical(requested)
       setStep(1)
     }
@@ -324,7 +341,7 @@ export function EmbedWizard() {
             {screen === "service" && (
               <Screen title="What can we help you with?">
                 <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                  {VERTICALS.map((v) => {
+                  {SERVICES.map((v) => {
                     const Icon = v.icon
                     const selected = vertical === v.id
                     return (

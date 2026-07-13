@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  ArrowRight, Check, Shield, Phone, Leaf, Minus, Plus, CalendarDays,
+  ArrowRight, Check, Shield, Phone, Leaf, Minus, Plus, CalendarDays, Info,
   ClipboardCheck, BadgeCheck, Sparkles, RefreshCw, AlertTriangle,
 } from "lucide-react"
 import * as SliderPrimitive from "@radix-ui/react-slider"
@@ -23,6 +23,10 @@ import {
   type Program, type Project, type Vertical,
   type TierLevel, type PlantSize, type PropertyInputs, type ProgramTier,
 } from "@/lib/savatree-catalog"
+import {
+  estimateTreeWork, triageEmergency,
+  type TreeInputs, type TreeJob, type Confidence,
+} from "@/lib/tree-care"
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -233,7 +237,15 @@ export default function HomePage() {
         <section id="step-2" className="border-t border-border bg-background scroll-mt-4">
           <div className="container mx-auto px-4 py-12 md:py-14">
             <div className="max-w-4xl mx-auto">
-              <StepHeader step={2} title={`${meta.label} — what do you need?`} subtitle="One-off jobs, scoped by a certified arborist. Stump grinding quotes instantly." />
+              <StepHeader
+                step={2}
+                title={`${meta.label} — what do you need?`}
+                subtitle={
+                  meta.id === "tree_work"
+                    ? "Tell us about the tree and we'll give you an honest range on the spot."
+                    : "One-off jobs, scoped by a certified arborist."
+                }
+              />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {projects.map((p) => (
                   <ProjectCard key={p.id} project={p} selected={projectId === p.id} onClick={() => selectProject(p)} />
@@ -249,6 +261,8 @@ export default function HomePage() {
           <div className="container mx-auto px-4 py-12 md:py-14">
             {project.urgent ? (
               <UrgentPanel project={project} />
+            ) : TREE_JOBS[project.id] ? (
+              <TreeEstimator project={project} job={TREE_JOBS[project.id]} />
             ) : project.path === "instant_quote" ? (
               <div className="max-w-3xl mx-auto">
                 <StepHeader step={3} title={project.name} subtitle={project.blurb} />
@@ -394,7 +408,10 @@ function Hero() {
 function VerticalCard({ meta, selected, onClick }: { meta: VerticalMeta; selected: boolean; onClick: () => void }) {
   const Icon = meta.icon
   // Deer is a program but still arborist-gated — don't promise an instant plan.
-  const instant = meta.kind === "program" && programForVertical(meta.id)?.path === "instant_quote"
+  // Tree work is the mirror image: projects, but they now quote a range on the spot.
+  const instant =
+    meta.id === "tree_work" ||
+    (meta.kind === "program" && programForVertical(meta.id)?.path === "instant_quote")
   return (
     <button
       onClick={onClick}
@@ -411,7 +428,11 @@ function VerticalCard({ meta, selected, onClick }: { meta: VerticalMeta; selecte
       <span className="font-bold text-navy text-[15px] leading-tight">{meta.label}</span>
       <span className="text-[12.5px] text-muted-foreground mt-1 leading-snug">{meta.blurb}</span>
       <span className="mt-auto pt-3 inline-flex items-center gap-1 text-[11px] font-bold text-orange-deep">
-        {instant ? <><Sparkles className="w-3 h-3" /> Instant plan</> : <><ClipboardCheck className="w-3 h-3" /> Scoped on site</>}
+        {meta.id === "tree_work"
+          ? <><Sparkles className="w-3 h-3" /> Instant range</>
+          : instant
+          ? <><Sparkles className="w-3 h-3" /> Instant plan</>
+          : <><ClipboardCheck className="w-3 h-3" /> Scoped on site</>}
       </span>
     </button>
   )
@@ -509,7 +530,10 @@ function TierCard({
 }
 
 function ProjectCard({ project, selected, onClick }: { project: Project; selected: boolean; onClick: () => void }) {
-  const instant = project.path === "instant_quote"
+  // Tree jobs now quote a range on the spot, even though the arborist still
+  // confirms the number — so they're no longer a bare "consult".
+  const quotesARange = Boolean(TREE_JOBS[project.id])
+  const instant = project.path === "instant_quote" || quotesARange
   return (
     <button
       onClick={onClick}
@@ -525,7 +549,13 @@ function ProjectCard({ project, selected, onClick }: { project: Project; selecte
             project.urgent ? "bg-gold/25 text-navy" : instant ? "bg-orange/12 text-orange-deep" : "bg-sky text-navy"
           }`}
         >
-          {project.urgent ? <><AlertTriangle className="w-3 h-3" /> Urgent</> : instant ? <><Sparkles className="w-3 h-3" /> Instant</> : <><ClipboardCheck className="w-3 h-3" /> Consult</>}
+          {project.urgent
+            ? <><AlertTriangle className="w-3 h-3" /> Urgent</>
+            : quotesARange
+            ? <><Sparkles className="w-3 h-3" /> Instant range</>
+            : instant
+            ? <><Sparkles className="w-3 h-3" /> Instant</>
+            : <><ClipboardCheck className="w-3 h-3" /> Consult</>}
         </span>
       </div>
       <p className="text-[13px] text-muted-foreground mt-1.5 leading-snug">{project.blurb}</p>
@@ -552,7 +582,15 @@ function PropertyInputsPanel({
       <div className="p-7 md:p-9">
         <FieldLabel label={cfg.label} help={cfg.help} />
         {cfg.kind === "sqft" ? (
-          <PropertySlider value={value} min={cfg.min} max={cfg.max} step={cfg.step} onChange={(n) => setInput(cfg.key, n)} />
+          <MeasureSlider
+            value={value}
+            min={cfg.min}
+            max={cfg.max}
+            step={cfg.step}
+            unit="sq ft"
+            ticks={[10000, 20000, 30000]}
+            onChange={(n) => setInput(cfg.key, n)}
+          />
         ) : (
           <NumberStepper
             value={value}
@@ -662,11 +700,20 @@ function NumberStepper({
   )
 }
 
-function PropertySlider({
-  value, min, max, step, onChange,
-}: { value: number; min: number; max: number; step: number; onChange: (n: number) => void }) {
+/** Sq ft of turf, or feet of tree — same control, different unit. */
+function MeasureSlider({
+  value, min, max, step, unit, ticks: tickValues, onChange,
+}: {
+  value: number
+  min: number
+  max: number
+  step: number
+  unit: string
+  ticks: number[]
+  onChange: (n: number) => void
+}) {
   const v = Math.min(Math.max(value || min, min), max)
-  const ticks = [10000, 20000, 30000].filter((t) => t > min && t < max)
+  const ticks = tickValues.filter((t) => t > min && t < max)
   const tickPct = (n: number) => ((n - min) / (max - min)) * 100
 
   return (
@@ -681,15 +728,15 @@ function PropertySlider({
             onChange(Number.isNaN(n) ? 0 : n)
           }}
           onBlur={() => { if (!value || value < min) onChange(min) }}
-          aria-label="Property size in square feet"
+          aria-label={`Size in ${unit}`}
           className="w-44 bg-transparent border-b-2 border-line text-center text-[34px] font-extrabold text-navy tabular-nums focus:border-orange focus:outline-none transition-colors"
         />
-        <span className="text-sm font-semibold text-muted-foreground">sq ft</span>
+        <span className="text-sm font-semibold text-muted-foreground">{unit}</span>
       </div>
       <SliderPrimitive.Root
         className="relative mt-8 flex w-full touch-none select-none items-center"
         min={min} max={max} step={step} value={[v]}
-        onValueChange={([n]) => onChange(n)} aria-label="Property size"
+        onValueChange={([n]) => onChange(n)} aria-label={`Size in ${unit}`}
       >
         <SliderPrimitive.Track className="relative h-2 w-full grow rounded-full bg-line">
           <SliderPrimitive.Range className="absolute h-full rounded-full bg-orange" />
@@ -710,9 +757,269 @@ function PropertySlider({
   )
 }
 
+// ─── Tree work estimator ──────────────────────────────────────────────────────
+
+/** Catalog projects that the tree-care model can actually price. */
+const TREE_JOBS: Record<string, TreeJob> = {
+  tree_removal: "removal",
+  tree_pruning: "pruning",
+  cabling_bracing: "cabling",
+}
+
+const ACCESS_CHOICES = [
+  { value: "open", label: "Open", detail: "A truck can reach it" },
+  { value: "moderate", label: "Moderate", detail: "Some obstacles" },
+  { value: "tight", label: "Tight", detail: "Backyard, gated, no truck" },
+] as const
+
+const PROXIMITY_CHOICES = [
+  { value: "open_yard", label: "Open yard", detail: "Nothing beneath it" },
+  { value: "near_structure", label: "Near a structure", detail: "House, fence, shed" },
+  { value: "over_structure_or_lines", label: "Over a structure or lines", detail: "Roof or power lines" },
+] as const
+
+const CONDITION_CHOICES = [
+  { value: "healthy", label: "Healthy", detail: "Full, normal canopy" },
+  { value: "declining", label: "Declining", detail: "Thinning or dieback" },
+  { value: "dead_or_decayed", label: "Dead or decayed", detail: "Dead limbs, cavities" },
+] as const
+
+const LEAN_CHOICES = [
+  { value: "none", label: "Straight", detail: "No noticeable lean" },
+  { value: "moderate", label: "Slight lean", detail: "Leans a little" },
+  { value: "severe", label: "Severe lean", detail: "Leaning hard" },
+] as const
+
+const CONFIDENCE_COPY: Record<Confidence, { label: string; blurb: string }> = {
+  high: { label: "Tight estimate", blurb: "Straightforward job — this range should hold." },
+  medium: { label: "Estimated range", blurb: "A few things an arborist has to see before we can narrow it." },
+  low: { label: "Wide range", blurb: "Real unknowns here. We'd rather be honest than precise." },
+}
+
+function TreeEstimator({ project, job }: { project: Project; job: TreeJob }) {
+  const router = useRouter()
+  const [t, setT] = useState<TreeInputs>({
+    job,
+    heightFt: 40,
+    count: 1,
+    access: "moderate",
+    proximity: "near_structure",
+    condition: "healthy",
+    lean: "none",
+  })
+
+  // Keep the job in sync when the customer switches between pruning/removal/cabling.
+  const inputs: TreeInputs = { ...t, job }
+  const set = <K extends keyof TreeInputs>(k: K, v: TreeInputs[K]) => setT((p) => ({ ...p, [k]: v }))
+
+  const est = useMemo(() => estimateTreeWork(inputs), [inputs])
+  const conf = CONFIDENCE_COPY[est.confidence]
+
+  // The model decides the route; the page only obeys it. A hazardous or oversized
+  // job books the arborist, never the work.
+  const go = () => {
+    const params = new URLSearchParams({
+      kind: est.nextStep === "book_job" ? "project" : "assessment",
+      id: project.id,
+      name: project.name,
+      vertical: project.vertical,
+      low: String(est.estimate.low),
+      high: String(est.estimate.high),
+      summary: [
+        `${est.count} tree${est.count === 1 ? "" : "s"}`,
+        `${inputs.heightFt} ft`,
+        inputs.diameterInches ? `${inputs.diameterInches}" trunk` : null,
+        CONDITION_CHOICES.find((c) => c.value === inputs.condition)?.label.toLowerCase(),
+      ].filter(Boolean).join(" · "),
+      lines: est.lines.map((l) => `${l.label} — ${bandText(l.band)}`).join(" | "),
+      notes: est.needsArboristBecause.join(" | "),
+      confidence: est.confidence,
+    })
+    router.push(`/checkout?${params.toString()}`)
+  }
+
+  return (
+    <div className="max-w-3xl mx-auto">
+      <StepHeader step={3} title={project.name} subtitle="Tell us about the tree. We'll give you an honest range — an arborist confirms it on site." />
+
+      <div className="rounded-[18px] border border-line bg-white shadow-brand-sm divide-y divide-line-soft">
+        <div className="p-7 md:p-9">
+          <FieldLabel label="How tall is the tree?" help="A rough guess is fine — compare it to your house." />
+          <MeasureSlider value={inputs.heightFt} min={10} max={120} step={5} unit="ft" ticks={[30, 60, 90]} onChange={(n) => set("heightFt", n)} />
+        </div>
+
+        <div className="p-7 md:p-9">
+          <FieldLabel label="How thick is the trunk?" help="Roughly, at chest height. Leave it alone if you're not sure — we'll assume typical for the height." />
+          <NumberStepper
+            value={inputs.diameterInches ?? Math.round(inputs.heightFt / 3)}
+            unit="inches across"
+            min={4}
+            max={80}
+            presets={[]}
+            onChange={(n) => set("diameterInches", n)}
+          />
+        </div>
+
+        <div className="p-7 md:p-9">
+          <FieldLabel label="How many trees?" />
+          <NumberStepper value={inputs.count ?? 1} unit={job === "removal" ? "trees" : "trees"} min={1} max={25} presets={[1, 2, 3, 5]} onChange={(n) => set("count", n)} />
+        </div>
+
+        <div className="p-7 md:p-9">
+          <FieldLabel label="Can a truck get to it?" help="Access is the single biggest cost driver on a tree job." />
+          <ChoiceGroup choices={ACCESS_CHOICES} value={inputs.access ?? "moderate"} onChange={(v) => set("access", v)} />
+        </div>
+
+        <div className="p-7 md:p-9">
+          <FieldLabel label="What's underneath it?" />
+          <ChoiceGroup choices={PROXIMITY_CHOICES} value={inputs.proximity ?? "near_structure"} onChange={(v) => set("proximity", v)} />
+        </div>
+
+        <div className="p-7 md:p-9">
+          <FieldLabel label="What condition is it in?" />
+          <ChoiceGroup choices={CONDITION_CHOICES} value={inputs.condition ?? "healthy"} onChange={(v) => set("condition", v)} />
+        </div>
+
+        <div className="p-7 md:p-9">
+          <FieldLabel label="Is it leaning?" />
+          <ChoiceGroup choices={LEAN_CHOICES} value={inputs.lean ?? "none"} onChange={(v) => set("lean", v)} />
+        </div>
+
+        {job === "removal" && (
+          <div className="p-7 md:p-9">
+            <button
+              onClick={() => set("addStumpGrinding", !inputs.addStumpGrinding)}
+              aria-pressed={!!inputs.addStumpGrinding}
+              className={`flex w-full max-w-2xl mx-auto items-start gap-3 rounded-xl p-4 border-2 text-left transition-all ${
+                inputs.addStumpGrinding ? "border-orange bg-brand-select" : "border-line bg-white hover:border-[#c7d6ca]"
+              }`}
+            >
+              <span className={`flex h-6 w-6 items-center justify-center rounded-md border-2 shrink-0 mt-0.5 ${inputs.addStumpGrinding ? "border-orange bg-orange text-white" : "border-line bg-white"}`}>
+                {inputs.addStumpGrinding ? <Check className="h-4 w-4" /> : null}
+              </span>
+              <span>
+                <span className="block font-semibold text-navy text-[15px]">Grind the stump too</span>
+                <span className="block text-[13px] text-muted-foreground mt-0.5">Otherwise the stump stays. Priced by trunk diameter.</span>
+              </span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* The estimate. A range, always — never a single number. */}
+      <div className="mt-8 rounded-[16px] border border-line bg-brand-band shadow-brand-sm">
+        <div className="p-7 md:px-8">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-5">
+            <div>
+              <p className="eyebrow mb-1.5">{conf.label} · ±{est.spreadPct}%</p>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-4xl md:text-[46px] font-extrabold text-navy leading-none tracking-[-0.02em]">
+                  {bandText(est.estimate)}
+                </span>
+              </div>
+              <p className="text-[13px] text-body mt-2 max-w-sm">{conf.blurb}</p>
+            </div>
+            <button onClick={go} className="btn-orange shrink-0">
+              {est.nextStep === "book_job" ? "Continue to booking" : "Book your free assessment"}
+              <ArrowRight className="w-5 h-5" />
+            </button>
+          </div>
+
+          {est.lines.length > 1 && (
+            <ul className="mt-5 border-t border-[#dbe7dd] pt-4 space-y-1.5">
+              {est.lines.map((l, i) => (
+                <li key={i} className="flex items-start justify-between gap-3 text-[13.5px] text-body">
+                  <span className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-orange mt-0.5 shrink-0" />
+                    <span>{l.label}</span>
+                  </span>
+                  <span className="font-semibold text-navy tabular-nums shrink-0">{bandText(l.band)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* Why the band is this wide. Saying it out loud is the whole point — an honest
+          wide range beats a fake-precise number. */}
+      {est.factors.length > 0 && (
+        <div className="mt-4 rounded-[16px] border border-line bg-white p-6">
+          <p className="eyebrow mb-3">What&apos;s driving this range</p>
+          <ul className="space-y-2">
+            {est.factors.map((f) => (
+              <li key={f} className="flex items-start gap-2 text-[13.5px] text-body">
+                <Info className="w-4 h-4 text-navy/50 mt-0.5 shrink-0" />
+                <span>{f}</span>
+              </li>
+            ))}
+          </ul>
+
+          {est.needsArboristBecause.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-line-soft">
+              <p className="eyebrow mb-3">Only an arborist can judge this on site</p>
+              <ul className="space-y-2">
+                {est.needsArboristBecause.map((n) => (
+                  <li key={n} className="flex items-start gap-2 text-[13.5px] font-semibold text-navy">
+                    <ClipboardCheck className="w-4 h-4 text-orange mt-0.5 shrink-0" />
+                    <span>{n}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* The visit is the cross-sell engine. This is where it fires. */}
+      {est.upsell && (
+        <div className="mt-4 flex items-start gap-3 rounded-[16px] border border-gold/40 bg-gold/10 p-6">
+          <Leaf className="w-5 h-5 text-gold-deep mt-0.5 shrink-0" />
+          <p className="text-[13.5px] text-navy leading-relaxed">{est.upsell}</p>
+        </div>
+      )}
+
+      <p className="mt-4 text-[12px] text-muted-foreground leading-relaxed">{est.disclaimer}</p>
+    </div>
+  )
+}
+
+/** Radio-style choice cards. */
+function ChoiceGroup<T extends string>({
+  choices, value, onChange,
+}: {
+  choices: readonly { value: T; label: string; detail: string }[]
+  value: T
+  onChange: (v: T) => void
+}) {
+  return (
+    <div className={`grid grid-cols-1 sm:grid-cols-${choices.length} gap-2.5 max-w-2xl mx-auto`} style={{ gridTemplateColumns: `repeat(${choices.length}, minmax(0, 1fr))` }}>
+      {choices.map((c) => {
+        const selected = value === c.value
+        return (
+          <button
+            key={c.value}
+            onClick={() => onChange(c.value)}
+            aria-pressed={selected}
+            className={`rounded-xl px-4 py-3 text-center border-2 transition-all ${
+              selected ? "border-orange bg-brand-select" : "border-line bg-white hover:border-[#c7d6ca]"
+            }`}
+          >
+            <p className={`font-bold text-[14.5px] ${selected ? "text-orange-deep" : "text-navy"}`}>{c.label}</p>
+            <p className="text-[12px] text-muted-foreground mt-0.5 leading-snug">{c.detail}</p>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Urgent (storm) panel ─────────────────────────────────────────────────────
 
 function UrgentPanel({ project }: { project: Project }) {
+  // Nobody with a tree on their roof wants a pricing wizard. No estimate, no
+  // range, no number — the model routes this straight to dispatch.
+  const triage = triageEmergency()
   return (
     <div className="max-w-2xl mx-auto text-center">
       <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-gold/20 mb-4">
@@ -721,13 +1028,13 @@ function UrgentPanel({ project }: { project: Project }) {
       <h2 className="disp text-navy text-[clamp(26px,3.5vw,38px)]">{project.name}</h2>
       <p className="text-body mt-3 max-w-lg mx-auto">{project.blurb}</p>
       <div className="mt-8 rounded-[16px] border border-line bg-brand-band p-8">
-        <p className="text-[15px] font-semibold text-navy">Don&apos;t wait on a quote — call our dispatch line.</p>
+        <p className="text-[15px] font-semibold text-navy">{triage.message}</p>
         <a href="tel:8005433245" className="btn-orange mt-5 w-full sm:w-auto">
           <Phone className="w-5 h-5" />
           (800) 543-3245
         </a>
         <p className="text-[13px] text-muted-foreground mt-4">
-          Emergency crews are dispatched directly. Typical storm work runs {bandText(project.pricing.band)}, confirmed on site.
+          Emergency crews are dispatched directly and the work is priced on site.
         </p>
       </div>
     </div>

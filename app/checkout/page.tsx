@@ -59,6 +59,8 @@ export default function CheckoutPage() {
     summary: "",
     addOns: [] as string[],
     lines: [] as string[],
+    notes: [] as string[], // what only an arborist can judge on site
+    confidence: "",
   })
 
   const [serviceAddress, setServiceAddress] = useState("")
@@ -93,6 +95,9 @@ export default function CheckoutPage() {
   const isProgram = quote.kind === "program"
   // "Skip to booking" — no plan, no estimate, just get an arborist to the property.
   const isVisit = quote.kind === "visit"
+  // A tree job too big or too hazardous to book blind: we quote a range, then the
+  // arborist confirms the number before any work begins.
+  const isAssessment = quote.kind === "assessment"
 
   // Anything eligible for this program the customer doesn't already have — neither
   // picked in the estimator nor bundled free at their tier. Never re-sell what the
@@ -131,6 +136,8 @@ export default function CheckoutPage() {
       summary: get("summary"),
       addOns: list("addOns"),
       lines: list("lines"),
+      notes: list("notes"),
+      confidence: get("confidence"),
     })
 
     const addr = get("address")
@@ -227,6 +234,8 @@ export default function CheckoutPage() {
       autoRenews: String(quote.autoRenews),
       summary: quote.summary,
       lines: quote.lines.join(" | "),
+      notes: quote.notes.join(" | "),
+      confidence: quote.confidence,
       addOns: [...quote.addOns, ...extraAddOnLabels].join(" | "),
       address: [serviceAddress, addressLine2.trim()].filter(Boolean).join(", "),
       customerName: `${customerInfo.firstName} ${customerInfo.lastName}`.trim(),
@@ -251,7 +260,13 @@ export default function CheckoutPage() {
             {isVisit ? "Back to home" : "Back to estimate"}
           </Link>
           <h1 className="disp text-navy text-[clamp(34px,5vw,52px)] text-center">
-            {isVisit ? "Book an Arborist Visit" : isProgram ? "Enroll in Your Plan" : "Schedule Your Service"}
+            {isVisit
+              ? "Book an Arborist Visit"
+              : isAssessment
+              ? "Book Your Free Assessment"
+              : isProgram
+              ? "Enroll in Your Plan"
+              : "Schedule Your Service"}
           </h1>
         </div>
 
@@ -291,7 +306,7 @@ export default function CheckoutPage() {
           <Card className="rounded-[16px] border-line shadow-brand-sm">
             <CardHeader className="pb-3">
               <CardTitle className="font-display font-semibold text-navy text-[22px]">
-                {isProgram ? "Your Plan" : "Your Service"}
+                {isProgram ? "Your Plan" : isAssessment ? "Your Estimated Range" : "Your Service"}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -303,6 +318,13 @@ export default function CheckoutPage() {
                     {suffix && <span className="text-body text-[13px] font-semibold">{suffix}</span>}
                   </div>
                 </div>
+
+                {/* Never let a range read as a firm price. */}
+                {isAssessment && (
+                  <p className="text-[13px] font-semibold text-navy">
+                    Estimated range — not a firm price. Your arborist confirms the number before any work begins.
+                  </p>
+                )}
 
                 {isProgram && quote.tierName && (
                   <p className="text-[13.5px] text-body">
@@ -322,6 +344,23 @@ export default function CheckoutPage() {
                       </li>
                     ))}
                   </ul>
+                )}
+
+                {/* The band is wide for reasons. Name them — it's what the visit is for. */}
+                {quote.notes.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-[#dbe7dd]">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground mb-2">
+                      What your arborist will confirm on site
+                    </p>
+                    <ul className="space-y-1.5">
+                      {quote.notes.map((n, i) => (
+                        <li key={i} className="flex items-start gap-2 text-[13px] text-navy font-semibold">
+                          <BadgeCheck className="h-4 w-4 text-orange mt-0.5 shrink-0" />
+                          <span>{n}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
 
                 {quote.autoRenews && (
@@ -562,7 +601,7 @@ export default function CheckoutPage() {
                   )}
 
                   <div className="border-t border-border pt-2 mt-2 flex justify-between font-semibold text-foreground">
-                    <span>{isProgram ? "Annual estimate" : "Estimate"}</span>
+                    <span>{isProgram ? "Annual estimate" : isAssessment ? "Estimated range" : "Estimate"}</span>
                     <span>{priceText}{suffix}</span>
                   </div>
                 </div>
@@ -573,7 +612,15 @@ export default function CheckoutPage() {
           {/* Confirm */}
           <div className="pb-8">
             <button onClick={handleBook} disabled={!canBook || isLoading} className="btn-orange w-full text-lg">
-              {isLoading ? "Processing..." : isVisit ? "Confirm & Book Visit" : isProgram ? "Confirm & Enroll" : "Confirm & Request Visit"}
+              {isLoading
+                ? "Processing..."
+                : isVisit
+                ? "Confirm & Book Visit"
+                : isAssessment
+                ? "Confirm & Book Assessment"
+                : isProgram
+                ? "Confirm & Enroll"
+                : "Confirm & Request Visit"}
             </button>
             {!canBook && <p className="text-xs text-muted-foreground text-center mt-3">Please fill in all required fields and select a visit date &amp; time</p>}
           </div>

@@ -21,6 +21,7 @@ export default function ConfirmationPage() {
     autoRenews: "false",
     summary: "",
     lines: "",
+    notes: "",
     addOns: "",
     address: "",
     customerName: "",
@@ -43,8 +44,11 @@ export default function ConfirmationPage() {
   const isProgram = data.kind === "program"
   // Skip-to-booking: an arborist visit with no plan behind it and nothing to total.
   const isVisit = data.kind === "visit"
+  // A tree job we quoted as a range — the arborist confirms the number on site.
+  const isAssessment = data.kind === "assessment"
   const addOns = data.addOns ? data.addOns.split(" | ").map((a) => a.trim()).filter(Boolean) : []
   const lines = data.lines ? data.lines.split(" | ").map((l) => l.trim()).filter(Boolean) : []
+  const notes = data.notes ? data.notes.split(" | ").map((n) => n.trim()).filter(Boolean) : []
   const suffix = isProgram ? "/yr" : ""
   const priceText = data.high !== data.low
     ? `$${money(num(data.low))} – $${money(num(data.high))}`
@@ -115,7 +119,7 @@ export default function ConfirmationPage() {
 
             <div className="border-t border-line-soft pt-5">
               <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">
-                {isVisit ? "What You Booked" : isProgram ? "Your Plan" : "Selected Service"}
+                {isVisit ? "What You Booked" : isProgram ? "Your Plan" : isAssessment ? "Your Estimated Range" : "Selected Service"}
               </h3>
               <div className="bg-[#F3F8F3] border border-line-soft rounded-[14px] p-4">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -144,12 +148,31 @@ export default function ConfirmationPage() {
                 )}
                 {data.summary && <p className="text-sm text-muted-foreground mt-1">{data.summary}</p>}
 
+                {isAssessment && (
+                  <p className="text-sm font-semibold text-navy mt-1">
+                    Estimated range — not a firm price. Your arborist confirms the number before any work begins.
+                  </p>
+                )}
+
                 {lines.length > 0 && (
                   <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
                     {lines.map((line, i) => (
                       <li key={i}>&middot; {line}</li>
                     ))}
                   </ul>
+                )}
+
+                {notes.length > 0 && (
+                  <div className="mt-4 pt-3 border-t border-line-soft">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-2">
+                      Your arborist will confirm on site
+                    </p>
+                    <ul className="space-y-1 text-sm text-foreground">
+                      {notes.map((n, i) => (
+                        <li key={i}>&middot; {n}</li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
 
                 {data.autoRenews === "true" && (

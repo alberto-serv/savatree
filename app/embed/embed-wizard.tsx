@@ -55,7 +55,7 @@ type ScreenId =
   | "basis"         // the program's price driver: plants, turf sq ft, beds…
   | "plantSize"     // PHC only, and the dominant cost driver
   | "organic"       // style choice, offered where the program supports it
-  | "treeSize" | "treeScope" | "treeAccess" | "treeProximity" | "treeCondition"
+  | "treeSize" | "treeScope" | "treeAccess" | "treeProximity"
   | "stump"         // stump grinding: diameter + count
   | "plan"          // tier picker
   | "estimate"      // the range, for jobs that produce one
@@ -73,7 +73,7 @@ const PHASE_OF: Record<ScreenId, Phase> = {
   project: "Details", emergency: "Details",
   basis: "Details", plantSize: "Details", organic: "Details",
   treeSize: "Details", treeScope: "Details", treeAccess: "Details",
-  treeProximity: "Details", treeCondition: "Details", stump: "Details",
+  treeProximity: "Details", stump: "Details",
   plan: "Estimate",
   estimate: "Estimate",
   visit: "Schedule", schedule: "Schedule",
@@ -143,7 +143,7 @@ function screensFor(vertical: Vertical | null, projectId: string | null, job: Tr
     // Nobody with a limb through their roof wants a pricing wizard.
     if (project.urgent) return [...s, "emergency"]
 
-    if (job) s.push("treeSize", "treeScope", "treeAccess", "treeProximity", "treeCondition", "estimate")
+    if (job) s.push("treeSize", "treeScope", "treeAccess", "treeProximity", "estimate")
     else if (project.id === "stump_grinding") s.push("stump", "estimate")
     // Consultation projects (landscape, commercial, holiday lighting) skip the
     // estimate — an arborist scopes them, we don't — but they still book a visit.
@@ -178,18 +178,6 @@ const PROXIMITY_CHOICES = [
   { value: "over_structure_or_lines", label: "Over a roof or lines", detail: "Structure or power lines" },
 ] as const
 
-const CONDITION_CHOICES = [
-  { value: "healthy", label: "Healthy", detail: "Full, normal canopy" },
-  { value: "declining", label: "Declining", detail: "Thinning or dieback" },
-  { value: "dead_or_decayed", label: "Dead or decayed", detail: "Dead limbs, cavities" },
-] as const
-
-const LEAN_CHOICES = [
-  { value: "none", label: "Straight", detail: "No lean" },
-  { value: "moderate", label: "Slight lean", detail: "Leans a little" },
-  { value: "severe", label: "Severe lean", detail: "Leaning hard" },
-] as const
-
 // ─── Widget ───────────────────────────────────────────────────────────────────
 
 export function EmbedWizard() {
@@ -199,9 +187,11 @@ export function EmbedWizard() {
   const [projectId, setProjectId] = useState<string | null>(null)
   const [inputs, setInputs] = useState<PropertyInputs>({})
   const [tier, setTier] = useState<TierLevel>("better")
+  // condition and lean are absent on purpose — the widget doesn't ask, so it
+  // doesn't pretend to know. The model supplies its own defaults.
   const [tree, setTree] = useState<TreeInputs>({
     job: "removal", heightFt: 40, count: 1,
-    access: "moderate", proximity: "near_structure", condition: "healthy", lean: "none",
+    access: "moderate", proximity: "near_structure",
   })
   const [step, setStep] = useState(0)
   const [visitType, setVisitType] = useState<VisitType | null>(null)
@@ -251,8 +241,14 @@ export function EmbedWizard() {
 
   const planQuote = tierQuotes?.[tier] ?? null
 
+  // The widget no longer asks about condition or lean, so the model falls back
+  // to its defaults — healthy, straight — and cannot tell a sound oak from a
+  // decayed leaner. That's fine for a range, but it must NOT be allowed to clear
+  // the direct-book gate: a short "healthy" tree would otherwise book a crew
+  // blind at a healthy tree's price. Booking is off, so every tree job routes to
+  // the free arborist assessment, which is where the condition gets judged.
   const treeEstimate = useMemo(
-    () => (job ? estimateTreeWork({ ...tree, job }) : null),
+    () => (job ? estimateTreeWork({ ...tree, job }, { allowDirectBooking: false }) : null),
     [job, tree],
   )
 
@@ -539,16 +535,6 @@ export function EmbedWizard() {
               </Screen>
             )}
 
-            {screen === "treeCondition" && (
-              <Screen title="What condition is it in?">
-                <Choices choices={CONDITION_CHOICES} value={tree.condition ?? "healthy"} onChange={(v) => setTreeInput("condition", v)} />
-                <div className="mt-8 border-t border-line pt-7">
-                  <p className="mb-4 text-center text-[15px] font-bold text-navy">Is it leaning?</p>
-                  <Choices choices={LEAN_CHOICES} value={tree.lean ?? "none"} onChange={(v) => setTreeInput("lean", v)} />
-                </div>
-              </Screen>
-            )}
-
             {screen === "stump" && (
               <Screen title="Tell us about the stump">
                 <p className="mb-3 text-center text-[12px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Diameter</p>
@@ -619,11 +605,11 @@ export function EmbedWizard() {
 
             {screen === "estimate" && treeEstimate && (
               <Screen title="Your estimated range">
+                {/* Always an assessment now — see the allowDirectBooking note
+                    above — so the eyebrow says so without branching. */}
                 <Band
                   price={bandText(treeEstimate.estimate)}
-                  eyebrow={`±${treeEstimate.spreadPct}% · ${
-                    treeEstimate.nextStep === "book_job" ? "Straightforward job" : "An arborist confirms this on site"
-                  }`}
+                  eyebrow={`±${treeEstimate.spreadPct}% · An arborist confirms this on site`}
                   lines={treeEstimate.lines.map((l) => `${l.label} — ${bandText(l.band)}`)}
                 />
                 {treeEstimate.needsArboristBecause.length > 0 && (

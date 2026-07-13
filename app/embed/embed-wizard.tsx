@@ -50,6 +50,10 @@ import {
   CA_SPECIES, speciesAdvisory,
   type TreeSpecies, type PermitAssessment, type SpeciesAdvisory,
 } from "@/lib/california-trees"
+import {
+  useSavedConfig, resolveProgram, resolveAddons, enabledServices, enabledTreeJobs,
+  treeOptions, SERVICE_LABELS, type BranchConfig,
+} from "@/lib/branch-config"
 
 // ─── Flow ─────────────────────────────────────────────────────────────────────
 
@@ -89,37 +93,13 @@ const PHASE_OF: Record<ScreenId, Phase> = {
 const DEFAULT_PHASES: Phase[] = ["Service", "Details", "Estimate", "Schedule", "Contact"]
 
 /**
- * The service tiles, in the order and the words the widget offers them in.
- *
- * This is deliberately its own list rather than VERTICALS in catalog order:
- *  - Tree work leads. It's what a homeowner is looking at when they decide to
- *    call someone.
- *  - Commercial is absent. The contact step already asks residential vs
- *    commercial, and an HOA or a campus does not scope itself through a
- *    six-question wizard — it gets a salesperson. The catalog keeps the
- *    commercial projects; the embed simply doesn't sell them.
- *  - The pairing matters. The grid fills row-wise, so each row reads as a pair:
- *    trees & lawn, shrubs & pests, deer & decor.
- *
- * The labels are the customer's words, not the catalog's. "Plant Health Care"
- * is what SavATree calls the program internally; "Shrub Care" is what the
- * homeowner came looking for. The vertical id underneath is unchanged, so the
- * pricing engine never sees this rename.
+ * The tile's words, everywhere the widget speaks to the customer. These are the
+ * customer's words, not the catalog's: "Plant Health Care" is what SavATree calls
+ * the program internally; "Shrub Care" is what the homeowner came looking for.
+ * The vertical id underneath is unchanged, so the pricing engine never sees it.
  */
-const SERVICES: { id: Vertical; label: string }[] = [
-  { id: "tree_work", label: "Tree Care" },
-  { id: "lawn", label: "Lawn Care" },
-  { id: "plant_health", label: "Shrub Care" },
-  { id: "pest", label: "Insect & Tick Control" },
-  { id: "deer", label: "Deer Deterrent" },
-  { id: "landscape", label: "Decor & Holiday Lighting" },
-]
-
-const SERVICE_ORDER = SERVICES.map((s) => s.id)
-
-/** The tile's words, everywhere the widget speaks to the customer. */
 function serviceLabel(id: Vertical): string {
-  return SERVICES.find((s) => s.id === id)?.label ?? getVerticalMeta(id).label
+  return SERVICE_LABELS[id] ?? getVerticalMeta(id).label
 }
 
 /** Catalog projects the tree-care model can actually price. Everything else consults. */
@@ -181,8 +161,21 @@ const ACCESS_CHOICES = [
 
 // ─── Widget ───────────────────────────────────────────────────────────────────
 
-export function EmbedWizard() {
+/**
+ * The booking widget, as configured by ONE branch.
+ *
+ * `config` is how /config previews itself: it passes the manager's live, unsaved
+ * edits straight in, so the page they're looking at is the page their customers
+ * will get — not an approximation of it. Left out, the widget loads the branch's
+ * saved config from storage, which is what a real embed on a branch site does.
+ *
+ * Every price on this screen therefore comes from the branch, not the catalog:
+ * the tier rates, the tree labor index, and the city's permit fees.
+ */
+export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
   const params = useSearchParams()
+  const saved = useSavedConfig()
+  const cfg = config ?? saved
 
   const [vertical, setVertical] = useState<Vertical | null>(null)
   const [projectId, setProjectId] = useState<string | null>(null)
@@ -212,9 +205,29 @@ export function EmbedWizard() {
   const slots = slotsFor(visitType ?? "in_person")
   const slot = slots.find((s) => s.id === slotId) ?? null
 
-  const program = vertical ? programForVertical(vertical) : undefined
+  // The branch's version of everything: its tier rates, its add-on prices, its
+  // service list, its tree jobs. The catalog supplies the structure; the config
+  // supplies the numbers.
+  const services = useMemo(() => enabledServices(cfg), [cfg])
+  const branchAddons = useMemo(() => resolveAddons(cfg), [cfg])
+  const treeOpts = useMemo(() => treeOptions(cfg), [cfg])
+
+  const catalogProgram = vertical ? programForVertical(vertical) : undefined
+  const program = useMemo(
+    () => (catalogProgram ? resolveProgram(cfg, catalogProgram) : undefined),
+    [cfg, catalogProgram],
+  )
   const project = projectId ? getProject(projectId) : undefined
   const job = projectId ? TREE_JOBS[projectId] ?? null : null
+
+  /** Only the tree jobs this branch's crews actually take. Storm always stays. */
+  const branchProjects = useMemo(() => {
+    if (!vertical) return []
+    const all = projectsForVertical(vertical)
+    if (vertical !== "tree_work") return all
+    const allowed = new Set(enabledTreeJobs(cfg))
+    return all.filter((p) => allowed.has(p.id))
+  }, [vertical, cfg])
 
   const screens = useMemo(() => screensFor(vertical, projectId, job), [vertical, projectId, job])
   const screen = screens[Math.min(step, screens.length - 1)]
@@ -235,13 +248,16 @@ export function EmbedWizard() {
   const setTreeInput = <K extends keyof TreeInputs>(k: K, v: TreeInputs[K]) =>
     setTree((p) => ({ ...p, [k]: v }))
 
-  // ── Quotes. Same engine as the full-page estimator, no second opinion. ──
+  // ── Quotes. Same engine as the full-page estimator, priced at branch rates. ──
   const tierQuotes = useMemo(() => {
     if (!program || program.path !== "instant_quote") return null
     return Object.fromEntries(
-      program.tiers.map((t) => [t.level, quoteProgram(program.id, t.level, inputs)]),
+      program.tiers.map((t) => [
+        t.level,
+        quoteProgram(program.id, t.level, inputs, { program, addons: branchAddons }),
+      ]),
     ) as Record<TierLevel, ReturnType<typeof quoteProgram>>
-  }, [program, inputs])
+  }, [program, inputs, branchAddons])
 
   const planQuote = tierQuotes?.[tier] ?? null
 
@@ -249,21 +265,30 @@ export function EmbedWizard() {
   // model fills the rest from its defaults: a healthy, straight tree standing
   // near a structure. It therefore cannot tell a sound oak in an open yard from
   // a decayed leaner hanging over a roof. That's acceptable for a RANGE; it is
-  // not acceptable for a booking. Direct booking is off, so every tree job
-  // routes to the free arborist assessment — which is the one place a drop zone
-  // and a hollow trunk can actually be judged.
+  // not acceptable for a booking, which is why the San Jose branch ships with
+  // direct booking off and every tree job routes to the free arborist assessment.
+  //
+  // The branch's rate index and its city's permit policy both land here.
   const treeEstimate = useMemo(
-    () => (job ? estimateTreeWork({ ...tree, job }, { allowDirectBooking: false }) : null),
-    [job, tree],
+    () => (job ? estimateTreeWork({ ...tree, job }, treeOpts) : null),
+    [job, tree, treeOpts],
   )
 
-  const stumpQuote = useMemo(
-    () => (project?.id === "stump_grinding" ? quoteProject(project.id, inputs) : null),
-    [project, inputs],
-  )
+  // Grinding is labor, so it moves with the branch's rate index like the rest of
+  // the tree work does.
+  const stumpQuote = useMemo(() => {
+    if (project?.id !== "stump_grinding") return null
+    const q = quoteProject(project.id, inputs)
+    const k = cfg.tree.rateIndex
+    return {
+      ...q,
+      estimate: { low: Math.round(q.estimate.low * k), high: Math.round(q.estimate.high * k) },
+    }
+  }, [project, inputs, cfg.tree.rateIndex])
 
   // Available before there's a size, and therefore before there's a price.
-  const speciesNotice = job && tree.species ? speciesAdvisory(tree.species, job) : null
+  const speciesNotice =
+    job && tree.species ? speciesAdvisory(tree.species, job, cfg.permit) : null
 
   // ── Navigation ──
   const selectVertical = (v: Vertical) => {
@@ -308,10 +333,10 @@ export function EmbedWizard() {
   // Preselect a service from the host page: /embed?service=lawn drops the
   // customer straight into the questions for the page they were already reading.
   useEffect(() => {
-    // Guarded against SERVICE_ORDER, not the whole catalog — ?service=commercial
-    // must not deep-link into a flow the tiles deliberately don't offer.
+    // Guarded against what this BRANCH sells, not the whole catalog. A deep link
+    // must not open a flow whose tile the manager deliberately turned off.
     const requested = params.get("service") as Vertical | null
-    if (requested && SERVICE_ORDER.includes(requested)) {
+    if (requested && enabledServices(cfg).includes(requested)) {
       selectVertical(requested)
       setStep(1)
     }
@@ -349,6 +374,7 @@ export function EmbedWizard() {
       {submitted ? (
         <Confirmation
           contact={contact}
+          phone={cfg.identity.phone}
           visitType={visitType}
           date={date}
           slot={slot}
@@ -367,13 +393,13 @@ export function EmbedWizard() {
             {screen === "service" && (
               <Screen title="What can we help you with?">
                 <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                  {SERVICES.map((s) => {
-                    const Icon = getVerticalMeta(s.id).icon
-                    const selected = vertical === s.id
+                  {services.map((id) => {
+                    const Icon = getVerticalMeta(id).icon
+                    const selected = vertical === id
                     return (
                       <button
-                        key={s.id}
-                        onClick={() => selectVertical(s.id)}
+                        key={id}
+                        onClick={() => selectVertical(id)}
                         aria-pressed={selected}
                         className={`flex items-center gap-3 rounded-xl px-4 py-4 text-left transition-all duration-150 ${
                           selected
@@ -383,7 +409,7 @@ export function EmbedWizard() {
                       >
                         <Icon className={`h-6 w-6 shrink-0 ${selected ? "text-white" : "text-navy"}`} />
                         <span className="text-[13.5px] font-extrabold uppercase leading-tight tracking-[0.04em]">
-                          {s.label}
+                          {serviceLabel(id)}
                         </span>
                       </button>
                     )
@@ -395,7 +421,7 @@ export function EmbedWizard() {
             {screen === "project" && vertical && (
               <Screen title={`${serviceLabel(vertical)} — what do you need?`}>
                 <div className="grid grid-cols-1 gap-2.5">
-                  {projectsForVertical(vertical).map((p) => {
+                  {branchProjects.map((p) => {
                     const selected = projectId === p.id
                     const quotes = Boolean(TREE_JOBS[p.id]) || p.path === "instant_quote"
                     return (
@@ -426,7 +452,7 @@ export function EmbedWizard() {
               </Screen>
             )}
 
-            {screen === "emergency" && <Emergency />}
+            {screen === "emergency" && <Emergency phone={cfg.identity.phone} />}
 
             {screen === "basis" && program && (
               <Screen
@@ -1155,7 +1181,8 @@ function ProtectedTreePanel({ permit }: { permit: PermitAssessment }) {
   )
 }
 
-function Emergency() {
+/** The branch's own number — a fallen limb in San Jose is not a national call. */
+function Emergency({ phone }: { phone: string }) {
   return (
     <div className="text-center">
       <span className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-gold/25">
@@ -1165,18 +1192,19 @@ function Emergency() {
       <p className="mx-auto mt-3 max-w-[38ch] text-[14px] text-body">
         Skip the estimate — we&apos;ll get a crew dispatched and price the work on site.
       </p>
-      <a href="tel:8005433245" className="btn-orange mt-6 w-full sm:w-auto">
+      <a href={`tel:${phone.replace(/[^\d]/g, "")}`} className="btn-orange mt-6 w-full sm:w-auto">
         <Phone className="h-5 w-5" />
-        (800) 543-3245
+        {phone}
       </a>
     </div>
   )
 }
 
 function Confirmation({
-  contact, visitType, date, slot, summary,
+  contact, phone, visitType, date, slot, summary,
 }: {
   contact: { firstName: string; email: string; address: string }
+  phone: string
   visitType: VisitType | null
   date: Date | null
   slot: TimeSlot | null
@@ -1220,7 +1248,9 @@ function Confirmation({
 
       <p className="mt-6 text-[13px] text-muted-foreground">
         Need to change it?{" "}
-        <a href="tel:8005433245" className="font-bold text-orange-deep hover:underline">(800) 543-3245</a>
+        <a href={`tel:${phone.replace(/[^\d]/g, "")}`} className="font-bold text-orange-deep hover:underline">
+          {phone}
+        </a>
       </p>
     </div>
   )

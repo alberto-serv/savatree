@@ -11,7 +11,10 @@ import { Footer } from "@/components/footer"
 // /embed is the other reason: it renders inside a customer's iframe, where a
 // SavATree header and footer would be someone else's chrome bolted onto their
 // page. /embed/demo is a mock host site and brings its own.
-const STANDALONE_PREFIXES = ["/landing", "/embed"]
+//
+// /config isn't a customer surface at all — it's the branch manager's console,
+// and it carries its own branch-identified header.
+const STANDALONE_PREFIXES = ["/landing", "/embed", "/config"]
 
 export function SiteChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()

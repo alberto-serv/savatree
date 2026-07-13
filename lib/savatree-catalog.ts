@@ -701,15 +701,31 @@ function priceAddon(addon: Addon, i: PropertyInputs): PriceBand {
   }
 }
 
+/**
+ * Branch overrides. A SavATree branch is a franchise: the catalog defines WHAT is
+ * sold, the branch decides what it costs there. Pass the branch's resolved
+ * Program (its own tier rates, floors, and organic uplift) and its own add-on
+ * rates, and the engine prices against those instead of the corporate defaults.
+ *
+ * Omit them and nothing changes — the catalog IS the default branch.
+ */
+export interface QuoteOverrides {
+  program?: Program;
+  addons?: Addon[];
+}
+
 export function quoteProgram(
   programId: string,
   tierLevel: TierLevel,
-  inputs: PropertyInputs = {}
+  inputs: PropertyInputs = {},
+  overrides: QuoteOverrides = {}
 ): ProgramQuote {
-  const program = getProgram(programId);
+  const program = overrides.program ?? getProgram(programId);
   if (!program) throw new Error(`Unknown program: ${programId}`);
   const tier = program.tiers.find((t) => t.level === tierLevel);
   if (!tier) throw new Error(`Unknown tier ${tierLevel} on ${programId}`);
+  const addons = overrides.addons ?? ADDONS;
+  const lookupAddon = (id: string) => addons.find((a) => a.id === id);
 
   const units = basisValue(program, inputs);
   const mod = inputs.organic && program.organicModifier ? program.organicModifier : 1;
@@ -735,7 +751,7 @@ export function quoteProgram(
 
   // Included add-ons — show value, charge nothing.
   (tier.includedAddons ?? []).forEach((id) => {
-    const a = getAddon(id);
+    const a = lookupAddon(id);
     if (a) lines.push({ label: `${a.name} — included`, band: null, included: true });
   });
 
@@ -744,8 +760,8 @@ export function quoteProgram(
   (inputs.addonIds ?? [])
     .filter((id) => !included.has(id))
     .forEach((id) => {
-      const a = getAddon(id);
-      if (!a || !a.attachesTo.includes(programId)) return; // add-ons can't float free
+      const a = lookupAddon(id);
+      if (!a || !a.attachesTo.includes(program.id)) return; // add-ons can't float free
       const band = priceAddon(a, inputs);
       low += band.low;
       high += band.high;

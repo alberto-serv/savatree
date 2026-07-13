@@ -35,6 +35,7 @@ import {
   CA_ORDINANCE_DISCLAIMER,
   type TreeSpecies,
   type PermitAssessment,
+  type PermitPolicy,
 } from "./california-trees";
 
 // ─────────────────────────────────────────────────────────────────
@@ -225,10 +226,23 @@ function priceStumpGrinding(diameterInches: number, count: number): PriceBand {
 export interface EstimateOptions {
   /** Override the module default. Off → everything routes to an arborist. */
   allowDirectBooking?: boolean;
+  /**
+   * Branch labor index. The HEIGHT_BANDS above are national benchmark figures;
+   * a crew-hour in San Jose does not cost what a crew-hour costs in Ohio. The
+   * branch manager sets this in /config, and it scales the tree-work bands —
+   * NOT the permit costs, which are set by a city and don't care what we pay
+   * our climbers.
+   *
+   * 1.0 = the national anchors, unchanged.
+   */
+  rateIndex?: number;
+  /** The city's tree ordinance. Defaults to the conservative California pattern. */
+  permitPolicy?: PermitPolicy;
 }
 
 export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): TreeEstimate {
   if (!(i.heightFt > 0)) throw new Error("heightFt must be a positive number");
+  const rateIndex = opts.rateIndex ?? 1;
 
   const count = Math.max(1, Math.floor(i.count ?? 1));
   const access = ACCESS[i.access ?? "moderate"];
@@ -255,8 +269,8 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
   // 5. Derive the band from the base's OWN endpoints. Widening a midpoint would
   //    double-count risk: the base band already encodes ordinary variation.
   const jobFactor = JOB_FACTOR[i.job];
-  const perTreeLow = base.low * dbhAdj * jobFactor * mult * (1 - uncertainty * SPREAD_WEIGHT);
-  const perTreeHigh = base.high * dbhAdj * jobFactor * mult * (1 + uncertainty * SPREAD_WEIGHT);
+  const perTreeLow = base.low * dbhAdj * jobFactor * mult * rateIndex * (1 - uncertainty * SPREAD_WEIGHT);
+  const perTreeHigh = base.high * dbhAdj * jobFactor * mult * rateIndex * (1 + uncertainty * SPREAD_WEIGHT);
 
   // 6. Report the spread we actually produced, not the one we assumed.
   const mid = (perTreeLow + perTreeHigh) / 2;
@@ -275,7 +289,9 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
   const dbh = i.diameterInches ?? round(expectedDbh(i.heightFt));
 
   if (i.addStumpGrinding && i.job === "removal") {
-    const stump = priceStumpGrinding(dbh, count);
+    // Grinding is labor too — it moves with the branch's rate index.
+    const raw = priceStumpGrinding(dbh, count);
+    const stump = { low: raw.low * rateIndex, high: raw.high * rateIndex };
     total = { low: total.low + stump.low, high: total.high + stump.high };
     lines.push({
       label: `Stump grinding — ${dbh}" diameter${count > 1 ? ` × ${count}` : ""}`,
@@ -287,8 +303,14 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
   //    arborist report, and its replacement planting are real money the customer
   //    will pay, so they belong in the estimate — itemized, so it's visible that
   //    they're paying the city and not us.
+  // The permit is the CITY's price, not ours: it is deliberately not touched by
+  // the branch rate index. A $400 filing fee doesn't rise because our climbers
+  // cost more in San Jose.
   const permit = i.species
-    ? assessProtection({ species: i.species, dbhInches: dbh, job: i.job, count, condition: i.condition })
+    ? assessProtection(
+        { species: i.species, dbhInches: dbh, job: i.job, count, condition: i.condition },
+        opts.permitPolicy,
+      )
     : undefined;
 
   if (permit?.cost) {

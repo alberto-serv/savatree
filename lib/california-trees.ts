@@ -68,31 +68,66 @@ export const CA_SPECIES: SpeciesMeta[] = [
 ];
 
 /**
- * The DBH (trunk diameter at chest height) at which a species is typically
- * protected by ordinance. Set at the CONSERVATIVE end of the range California
- * cities actually use — a false "you may need a permit" costs a conversation, a
- * false "you don't" costs a fine.
+ * ⚠️ THE POLICY IS A PARAMETER, NOT A CONSTANT.
  *
- * null = not protected by species. It can still be protected by SIZE, as a
- * heritage tree — see HERITAGE_DBH.
+ * Every number below is set by a city council, and SavATree's branches don't
+ * each serve one city. The San Jose branch alone covers San Jose, Santa Clara,
+ * Los Gatos, Saratoga, Cupertino — and their ordinances do not agree with each
+ * other about what size oak needs a permit or what the filing fee is.
+ *
+ * So the module ships DEFAULT_PERMIT_POLICY (the conservative common pattern
+ * across California) and every function takes a policy argument. A branch
+ * manager who knows their city's actual code enters it in /config and the whole
+ * estimator — thresholds, fees, review weeks — moves with them. Nobody has to
+ * edit this file to open a branch.
+ *
+ * Thresholds stay at the CONSERVATIVE end by default: a false "you may need a
+ * permit" costs a conversation, a false "you don't" costs a fine.
  */
-const SPECIES_PROTECTED_AT_DBH: Record<TreeSpecies, number | null> = {
-  native_oak: 6,        // many cities protect natives from 6–12"; some protect at any size
-  coast_redwood: 10,
-  other_native: 12,
-  eucalyptus: null,
-  palm: null,
-  fruit_ornamental: null,
-  other: null,
-  unknown: 6,           // treated as the worst plausible case until identified
-};
+export interface PermitPolicy {
+  /** Whose rules these are. Shown to the customer, so it must be a real place. */
+  cityLabel: string;
+  /** DBH (trunk diameter at chest height) at which each species is protected. null = not protected by species. */
+  speciesDbh: Record<TreeSpecies, number | null>;
+  /** Any species this big is typically a protected "heritage" or "landmark" tree. */
+  heritageDbh: number;
+  /** Filed once per application, however many trees are on it. */
+  filing: PriceBand;
+  /** Nearly every California protected-removal permit requires one. */
+  report: PriceBand;
+  /** Replacement planting or in-lieu fee — assessed PER TREE removed. */
+  mitigationPerTree: PriceBand;
+  /** A dead or hazardous tree is usually expedited or exempt — but still documented. */
+  hazardDocumentation: PriceBand;
+  /** Heavy pruning of a protected tree is itself permitted in many cities. */
+  pruningPermit: PriceBand;
+  /** Typical city review window, in weeks. */
+  reviewWeeks: [number, number];
+  /** Longer, because a contested application goes to a hearing. */
+  contestedReviewWeeks: [number, number];
+}
 
-/**
- * Any species, once it's big enough, can be a protected "heritage" or "landmark"
- * tree. Cities vary (and some designate by name rather than size); ~24" DBH is
- * the common trigger.
- */
-const HERITAGE_DBH = 24;
+export const DEFAULT_PERMIT_POLICY: PermitPolicy = {
+  cityLabel: "most California cities",
+  speciesDbh: {
+    native_oak: 6,        // many cities protect natives from 6–12"; some protect at any size
+    coast_redwood: 10,
+    other_native: 12,
+    eucalyptus: null,
+    palm: null,
+    fruit_ornamental: null,
+    other: null,
+    unknown: 6,           // treated as the worst plausible case until identified
+  },
+  heritageDbh: 24,
+  filing: { low: 100, high: 500 },
+  report: { low: 300, high: 800 },
+  mitigationPerTree: { low: 250, high: 1500 },
+  hazardDocumentation: { low: 0, high: 500 },
+  pruningPermit: { low: 0, high: 350 },
+  reviewWeeks: [3, 8],
+  contestedReviewWeeks: [4, 12],
+};
 
 const SPECIES_LABEL: Record<TreeSpecies, string> = CA_SPECIES.reduce(
   (acc, s) => ({ ...acc, [s.id]: s.label }),
@@ -113,25 +148,6 @@ const SPECIES_COPY: Partial<Record<TreeSpecies, { one: string; noun: string; plu
     plural: "Native sycamores, bays, and buckeyes",
   },
 };
-
-// ─────────────────────────────────────────────────────────────────
-// What the permit process costs
-// ─────────────────────────────────────────────────────────────────
-
-/** Filed once per application, however many trees are on it. */
-const PERMIT_FILING: PriceBand = { low: 100, high: 500 };
-
-/** Nearly every California protected-removal permit requires one. */
-const ARBORIST_REPORT: PriceBand = { low: 300, high: 800 };
-
-/** Replacement planting or in-lieu fee — assessed PER TREE removed. */
-const MITIGATION_PER_TREE: PriceBand = { low: 250, high: 1500 };
-
-/** A dead or hazardous tree is usually expedited or exempt — but still documented. */
-const HAZARD_DOCUMENTATION: PriceBand = { low: 0, high: 500 };
-
-/** Heavy pruning of a protected tree is itself permitted in many cities. */
-const PRUNING_PERMIT: PriceBand = { low: 0, high: 350 };
 
 // ─────────────────────────────────────────────────────────────────
 // Assessment
@@ -176,13 +192,17 @@ export interface ProtectionInputs {
   condition?: "healthy" | "declining" | "dead_or_decayed";
 }
 
-export function assessProtection(i: ProtectionInputs): PermitAssessment {
+export function assessProtection(
+  i: ProtectionInputs,
+  policy: PermitPolicy = DEFAULT_PERMIT_POLICY,
+): PermitAssessment {
   const { species, dbhInches, job, count } = i;
   const condition = i.condition ?? "healthy";
+  const where = policy.cityLabel;
 
-  const speciesThreshold = SPECIES_PROTECTED_AT_DBH[species];
+  const speciesThreshold = policy.speciesDbh[species];
   const bySpecies = speciesThreshold !== null && dbhInches >= speciesThreshold;
-  const byHeritage = dbhInches >= HERITAGE_DBH;
+  const byHeritage = dbhInches >= policy.heritageDbh;
 
   if (!bySpecies && !byHeritage) return { ...NONE, species };
 
@@ -198,12 +218,12 @@ export function assessProtection(i: ProtectionInputs): PermitAssessment {
     );
   } else if (bySpecies && copy) {
     reasons.push(
-      `${copy.plural} of this size (${dbhInches}" trunk) are protected by ordinance in most California cities.`,
+      `${copy.plural} of this size (${dbhInches}" trunk) are protected by ordinance in ${where}.`,
     );
   }
   if (byHeritage && !bySpecies) {
     reasons.push(
-      `At ${dbhInches}" across, this is heritage-tree size — most California cities protect any species once it gets this big.`,
+      `At ${dbhInches}" across, this is heritage-tree size — ${where} protect any species once it gets this big.`,
     );
   }
 
@@ -234,8 +254,8 @@ export function assessProtection(i: ProtectionInputs): PermitAssessment {
         ...reasons,
         "Routine pruning is usually fine, but many ordinances cap how much canopy you may take off a protected tree — and heavy pruning can itself need a permit.",
       ],
-      cost: { ...PRUNING_PERMIT },
-      lines: [{ label: "Pruning permit, if your city requires one", band: { ...PRUNING_PERMIT } }],
+      cost: { ...policy.pruningPermit },
+      lines: [{ label: "Pruning permit, if your city requires one", band: { ...policy.pruningPermit } }],
       weeks: [1, 3],
       mayBeDenied: false,
     };
@@ -249,7 +269,7 @@ export function assessProtection(i: ProtectionInputs): PermitAssessment {
   if (condition === "dead_or_decayed") {
     lines.push({
       label: "Hazard documentation for an expedited or exempt removal",
-      band: { ...HAZARD_DOCUMENTATION },
+      band: { ...policy.hazardDocumentation },
     });
     return {
       isProtected: true,
@@ -259,7 +279,7 @@ export function assessProtection(i: ProtectionInputs): PermitAssessment {
         ...reasons,
         "Because it's dead or hazardous, most cities allow an expedited — sometimes exempt — removal. Your arborist documents the condition; the city won't take your word for it.",
       ],
-      cost: { ...HAZARD_DOCUMENTATION },
+      cost: { ...policy.hazardDocumentation },
       lines,
       weeks: [0, 2],
       mayBeDenied: false,
@@ -267,16 +287,16 @@ export function assessProtection(i: ProtectionInputs): PermitAssessment {
   }
 
   lines.push(
-    { label: "City removal permit (filing fee)", band: { ...PERMIT_FILING } },
-    { label: "Arborist report required by the permit", band: { ...ARBORIST_REPORT } },
+    { label: "City removal permit (filing fee)", band: { ...policy.filing } },
+    { label: "Arborist report required by the permit", band: { ...policy.report } },
     {
       label:
         count > 1
           ? `Replacement planting or in-lieu fee × ${count} trees`
           : "Replacement planting or in-lieu fee",
       band: {
-        low: MITIGATION_PER_TREE.low * count,
-        high: MITIGATION_PER_TREE.high * count,
+        low: policy.mitigationPerTree.low * count,
+        high: policy.mitigationPerTree.high * count,
       },
     },
   );
@@ -306,7 +326,7 @@ export function assessProtection(i: ProtectionInputs): PermitAssessment {
     ],
     cost,
     lines,
-    weeks: mayBeDenied ? [4, 12] : [3, 8],
+    weeks: mayBeDenied ? policy.contestedReviewWeeks : policy.reviewWeeks,
     mayBeDenied,
   };
 }
@@ -339,17 +359,23 @@ export interface SpeciesAdvisory {
   mayBeDenied: boolean;
 }
 
-export function speciesAdvisory(species: TreeSpecies, job: TreeJob): SpeciesAdvisory | null {
-  const threshold = SPECIES_PROTECTED_AT_DBH[species];
+export function speciesAdvisory(
+  species: TreeSpecies,
+  job: TreeJob,
+  policy: PermitPolicy = DEFAULT_PERMIT_POLICY,
+): SpeciesAdvisory | null {
+  const threshold = policy.speciesDbh[species];
   if (threshold === null) return null;
+
+  const where = policy.cityLabel;
 
   if (species === "unknown") {
     return {
       headline: "Worth identifying before anything else",
       body:
         job === "removal"
-          ? "If it turns out to be a native oak or a coast redwood, most California cities protect it — and removal would then need a permit, an arborist report, and weeks of city review, and can be refused outright. Your arborist identifies it on the first visit, free. Until then we assume it might be protected, so the estimate stays wide."
-          : "If it turns out to be a native oak or a coast redwood, most California cities protect it — which can cap how much canopy comes off in one go. Nothing here stops the work; it just changes how it's done. Your arborist identifies it on the first visit, free.",
+          ? `If it turns out to be a native oak or a coast redwood, ${where} protect it — and removal would then need a permit, an arborist report, and weeks of city review, and can be refused outright. Your arborist identifies it on the first visit, free. Until then we assume it might be protected, so the estimate stays wide.`
+          : `If it turns out to be a native oak or a coast redwood, ${where} protect it — which can cap how much canopy comes off in one go. Nothing here stops the work; it just changes how it's done. Your arborist identifies it on the first visit, free.`,
       mayBeDenied: job === "removal",
     };
   }
@@ -359,7 +385,7 @@ export function speciesAdvisory(species: TreeSpecies, job: TreeJob): SpeciesAdvi
 
   if (job === "cabling") {
     return {
-      headline: `${copy.plural} are protected in most California cities`,
+      headline: `${copy.plural} are protected in ${where}`,
       body:
         "Good news for this job: cabling preserves the tree, so no removal permit is involved — and on a protected tree it's frequently what the city would rather you did anyway.",
       mayBeDenied: false,
@@ -368,15 +394,15 @@ export function speciesAdvisory(species: TreeSpecies, job: TreeJob): SpeciesAdvi
 
   if (job === "pruning") {
     return {
-      headline: `${copy.plural} are protected in most California cities`,
+      headline: `${copy.plural} are protected in ${where}`,
       body: `Once the trunk is about ${threshold}" across, ordinances typically cap how much canopy may be taken off in one go, and heavy pruning can need a permit of its own. Routine, correct pruning is almost always fine — and it's the work cities prefer to see on a protected tree.`,
       mayBeDenied: false,
     };
   }
 
   return {
-    headline: `Removing ${copy.one} in California usually needs the city's permission`,
-    body: `Once the trunk is about ${threshold}" across — which most yard ${copy.noun}s are — removal requires a city permit, an arborist report, and a review period measured in weeks, not days. And a healthy protected ${copy.noun} is often DENIED: cities want it pruned or treated, not removed. We'll price the permit with the job, and your arborist will tell you honestly whether an application has a chance before you pay for one.`,
+    headline: `Removing ${copy.one} here usually needs the city's permission`,
+    body: `Once the trunk is about ${threshold}" across — which most yard ${copy.noun}s are — ${where} require a removal permit, an arborist report, and a review period measured in weeks, not days. And a healthy protected ${copy.noun} is often DENIED: cities want it pruned or treated, not removed. We'll price the permit with the job, and your arborist will tell you honestly whether an application has a chance before you pay for one.`,
     mayBeDenied: true,
   };
 }

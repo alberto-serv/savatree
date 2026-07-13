@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Leaf, Mail, MapPin, Phone } from "lucide-react"
-import { CATALOG, VERTICAL_LABELS, type Vertical } from "@/lib/savatree-catalog"
+import { PROGRAMS, PROJECTS } from "@/lib/savatree-catalog"
 
 export default function ContactPage() {
   const [formSubmitted, setFormSubmitted] = useState(false)
@@ -91,20 +91,23 @@ export default function ContactPage() {
                         <Input id="address" defaultValue={prefilledAddress} required />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="service">Service of Interest</Label>
+                        <Label htmlFor="service">What are you interested in?</Label>
                         <select
                           id="service"
                           defaultValue={selectedService}
                           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         >
-                          <option value="">Select a service</option>
-                          {(Object.keys(VERTICAL_LABELS) as Vertical[]).map((v) => (
-                            <optgroup key={v} label={VERTICAL_LABELS[v]}>
-                              {CATALOG.filter((s) => s.vertical === v).map((s) => (
-                                <option key={s.id} value={s.id}>{s.name}</option>
-                              ))}
-                            </optgroup>
-                          ))}
+                          <option value="">Select one</option>
+                          <optgroup label="Care Programs">
+                            {PROGRAMS.map((p) => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="Projects & Consulting">
+                            {PROJECTS.map((p) => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </optgroup>
                         </select>
                       </div>
                       <div className="space-y-2">

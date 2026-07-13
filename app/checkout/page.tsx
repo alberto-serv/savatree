@@ -7,23 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ArrowLeft, Check, MapPin, AlertCircle, Loader2, LocateFixed, ChevronLeft, ChevronRight, CalendarDays } from "lucide-react"
-import { getService, type Service } from "@/lib/savatree-catalog"
-import { cadenceLabel } from "@/lib/savatree-services"
-
-// ─── Add-on suggestions (relevant instant services, priced on the visit) ──────
-
-const ADDON_IDS_BY_VERTICAL: Record<string, string[]> = {
-  lawn: ["core_aeration", "lawn_seeding", "homeshield_pest_barrier"],
-  plant_health: ["soil_testing", "recharge_deep_root_watering"],
-  tick: ["mosquito_control_program", "tick_control_program"],
-  trees_shrubs: ["stump_grinding", "soil_testing"],
-}
-
-function buildAddOns(vertical: string, currentServiceId: string): Service[] {
-  const ids = (ADDON_IDS_BY_VERTICAL[vertical] ?? []).filter((id) => id !== currentServiceId)
-  return ids.map((id) => getService(id)).filter((s): s is Service => Boolean(s))
-}
+import {
+  ArrowLeft, Check, MapPin, AlertCircle, Loader2, LocateFixed,
+  ChevronLeft, ChevronRight, CalendarDays, RefreshCw,
+} from "lucide-react"
+import { addonsForProgram, money } from "@/lib/savatree-services"
+import { getProgram, type TierLevel } from "@/lib/savatree-catalog"
 
 // ─── Scheduling helpers ───────────────────────────────────────────────────────
 
@@ -49,23 +38,29 @@ function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
-function money(n: number): string {
-  return (Number.isFinite(n) ? n : 0).toLocaleString("en-US", { maximumFractionDigits: 0 })
-}
-
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function CheckoutPage() {
   const searchParams = useSearchParams()
 
-  const [serviceId, setServiceId] = useState("")
-  const [serviceName, setServiceName] = useState("")
-  const [vertical, setVertical] = useState("")
-  const [cadence, setCadence] = useState("")
-  const [low, setLow] = useState(0)
-  const [high, setHigh] = useState(0)
-  const [summary, setSummary] = useState("")
-  const [lineItems, setLineItems] = useState<string[]>([])
+  // The quote, as handed over from the estimator.
+  const [quote, setQuote] = useState({
+    kind: "program",
+    id: "",
+    name: "Program",
+    vertical: "",
+    tier: "",
+    tierName: "",
+    visits: "",
+    low: 0,
+    high: 0,
+    monthlyLow: 0,
+    monthlyHigh: 0,
+    autoRenews: false,
+    summary: "",
+    addOns: [] as string[],
+    lines: [] as string[],
+  })
 
   const [serviceAddress, setServiceAddress] = useState("")
   const [addressInput, setAddressInput] = useState("")
@@ -75,7 +70,7 @@ export default function CheckoutPage() {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [isGeolocating, setIsGeolocating] = useState(false)
   const [addressNotRecognized, setAddressNotRecognized] = useState(false)
-  const [selectedAddOns, setSelectedAddOns] = useState<string[]>([])
+  const [extraAddOns, setExtraAddOns] = useState<string[]>([])
   const [customerInfo, setCustomerInfo] = useState({ firstName: "", lastName: "", email: "" })
   const [phoneNumber, setPhoneNumber] = useState("")
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
@@ -95,25 +90,48 @@ export default function CheckoutPage() {
     "540 Elm Street, Concord, MA 01742",
   ], [])
 
-  const availableAddOns = useMemo(() => buildAddOns(vertical, serviceId), [vertical, serviceId])
-  const service = serviceId ? getService(serviceId) : undefined
+  const isProgram = quote.kind === "program"
+
+  // Anything eligible for this program the customer doesn't already have — neither
+  // picked in the estimator nor bundled free at their tier. Never re-sell what the
+  // plan already includes.
+  const upsellAddOns = useMemo(() => {
+    if (!isProgram || !quote.id) return []
+    const program = getProgram(quote.id)
+    const tier = program?.tiers.find((t) => t.level === (quote.tier as TierLevel))
+    const included = new Set(tier?.includedAddons ?? [])
+    const taken = new Set(quote.addOns)
+    return addonsForProgram(quote.id).filter((a) => !included.has(a.id) && !taken.has(a.name))
+  }, [isProgram, quote.id, quote.tier, quote.addOns])
 
   useEffect(() => { window.scrollTo(0, 0) }, [])
 
   useEffect(() => {
     if (hasInit.current) return
     hasInit.current = true
-    const s = searchParams.get("service") || ""
-    setServiceId(s)
-    setServiceName(searchParams.get("serviceName") || getService(s)?.name || "Service")
-    setVertical(searchParams.get("vertical") || getService(s)?.vertical || "")
-    setCadence(searchParams.get("cadence") || getService(s)?.cadence || "")
-    setLow(parseInt(searchParams.get("low") || "0"))
-    setHigh(parseInt(searchParams.get("high") || "0"))
-    setSummary(searchParams.get("summary") || "")
-    const li = searchParams.get("lineItems")
-    if (li) setLineItems(li.split(" | ").filter(Boolean))
-    const addr = searchParams.get("address")
+    const get = (k: string) => searchParams.get(k) || ""
+    const num = (k: string) => Number.parseInt(get(k) || "0", 10) || 0
+    const list = (k: string) => get(k).split(" | ").map((s) => s.trim()).filter(Boolean)
+
+    setQuote({
+      kind: get("kind") || "program",
+      id: get("id"),
+      name: get("name") || "Program",
+      vertical: get("vertical"),
+      tier: get("tier"),
+      tierName: get("tierName"),
+      visits: get("visits"),
+      low: num("low"),
+      high: num("high"),
+      monthlyLow: num("monthlyLow"),
+      monthlyHigh: num("monthlyHigh"),
+      autoRenews: get("autoRenews") === "true",
+      summary: get("summary"),
+      addOns: list("addOns"),
+      lines: list("lines"),
+    })
+
+    const addr = get("address")
     if (addr) { setServiceAddress(addr); setAddressInput(addr) }
   }, [searchParams])
 
@@ -161,12 +179,12 @@ export default function CheckoutPage() {
     setShowSuggestions(false); setAddressSuggestions([]); setAddressInput(s); handleAddressLookup(s)
   }, [handleAddressLookup])
 
-  const toggleAddOn = useCallback((id: string) => {
-    setSelectedAddOns((prev) => prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id])
+  const toggleExtra = useCallback((name: string) => {
+    setExtraAddOns((prev) => prev.includes(name) ? prev.filter((a) => a !== name) : [...prev, name])
   }, [])
 
-  const priceText = high !== low ? `$${money(low)} – $${money(high)}` : `$${money(low)}`
-  const cadenceSuffix = cadence === "annual_program" ? "/yr" : cadence === "seasonal" ? "/season" : ""
+  const priceText = quote.high !== quote.low ? `$${money(quote.low)} – $${money(quote.high)}` : `$${money(quote.low)}`
+  const suffix = isProgram ? "/yr" : ""
   const canBook = customerInfo.firstName && customerInfo.lastName && customerInfo.email && phoneNumber.trim() && selectedDate && selectedTimeSlot && serviceAddress
 
   const formatVisitDate = (date: Date) => date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
@@ -175,16 +193,20 @@ export default function CheckoutPage() {
     setIsLoading(true)
     await new Promise((r) => setTimeout(r, 1300))
     const visitSlot = TIME_SLOTS.find((s) => s.id === selectedTimeSlot)
-    const addOnNames = selectedAddOns.map((id) => getService(id)?.name).filter(Boolean).join(", ")
     const params = new URLSearchParams({
-      service: serviceId,
-      serviceName,
-      vertical,
-      cadence,
-      low: String(low),
-      high: String(high),
-      summary,
-      addOns: addOnNames,
+      kind: quote.kind,
+      id: quote.id,
+      name: quote.name,
+      tierName: quote.tierName,
+      visits: quote.visits,
+      low: String(quote.low),
+      high: String(quote.high),
+      monthlyLow: String(quote.monthlyLow),
+      monthlyHigh: String(quote.monthlyHigh),
+      autoRenews: String(quote.autoRenews),
+      summary: quote.summary,
+      lines: quote.lines.join(" | "),
+      addOns: [...quote.addOns, ...extraAddOns].join(" | "),
       address: [serviceAddress, addressLine2.trim()].filter(Boolean).join(", "),
       customerName: `${customerInfo.firstName} ${customerInfo.lastName}`.trim(),
       customerEmail: customerInfo.email,
@@ -193,7 +215,7 @@ export default function CheckoutPage() {
       visitTime: visitSlot ? visitSlot.time : "",
     })
     window.location.href = `/checkout/confirmation?${params.toString()}`
-  }, [serviceId, serviceName, vertical, cadence, low, high, summary, selectedAddOns, serviceAddress, addressLine2, customerInfo, phoneNumber, selectedDate, selectedTimeSlot])
+  }, [quote, extraAddOns, serviceAddress, addressLine2, customerInfo, phoneNumber, selectedDate, selectedTimeSlot])
 
   const visibleDates = availableDates.slice(calendarWeekStart, calendarWeekStart + 5)
   const canGoBack = calendarWeekStart > 0
@@ -207,29 +229,41 @@ export default function CheckoutPage() {
             <ArrowLeft className="h-4 w-4 mr-1.5" />
             Back to estimate
           </Link>
-          <h1 className="disp text-navy text-[clamp(34px,5vw,52px)] text-center">Schedule Your Service</h1>
+          <h1 className="disp text-navy text-[clamp(34px,5vw,52px)] text-center">
+            {isProgram ? "Enroll in Your Plan" : "Schedule Your Service"}
+          </h1>
         </div>
 
         <div className="max-w-2xl mx-auto space-y-5">
-          {/* Service Summary */}
+          {/* Plan summary */}
           <Card className="rounded-[16px] border-line shadow-brand-sm">
             <CardHeader className="pb-3">
-              <CardTitle className="font-display font-semibold text-navy text-[22px]">Your Service</CardTitle>
+              <CardTitle className="font-display font-semibold text-navy text-[22px]">
+                {isProgram ? "Your Plan" : "Your Service"}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="bg-brand-band border border-[#dbe7dd] p-6 rounded-[14px]">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-1">
-                  <h3 className="text-[19px] font-semibold text-navy">{serviceName}</h3>
+                  <h3 className="text-[19px] font-semibold text-navy">{quote.name}</h3>
                   <div className="flex items-baseline gap-1">
                     <span className="text-xl font-extrabold text-orange-deep">{priceText}</span>
-                    {cadenceSuffix && <span className="text-body text-[13px] font-semibold">{cadenceSuffix}</span>}
+                    {suffix && <span className="text-body text-[13px] font-semibold">{suffix}</span>}
                   </div>
                 </div>
-                {cadence && <p className="text-[13.5px] text-body">{cadenceLabel(cadence as Service["cadence"])}</p>}
-                {summary && <p className="text-[13.5px] text-body mt-1.5">{summary}</p>}
-                {lineItems.length > 0 && (
+
+                {isProgram && quote.tierName && (
+                  <p className="text-[13.5px] text-body">
+                    {quote.tierName}
+                    {quote.visits && ` · ${quote.visits} visits a year`}
+                    {quote.monthlyHigh > 0 && ` · ≈ $${money(quote.monthlyLow)}–$${money(quote.monthlyHigh)}/mo`}
+                  </p>
+                )}
+                {quote.summary && <p className="text-[13.5px] text-body mt-1.5">{quote.summary}</p>}
+
+                {quote.lines.length > 0 && (
                   <ul className="mt-3 space-y-1">
-                    {lineItems.map((li, i) => (
+                    {quote.lines.map((li, i) => (
                       <li key={i} className="flex items-start gap-1.5 text-[13px] text-body">
                         <Check className="h-3.5 w-3.5 text-orange mt-0.5 shrink-0" />
                         <span>{li}</span>
@@ -237,29 +271,38 @@ export default function CheckoutPage() {
                     ))}
                   </ul>
                 )}
-                <p className="text-[11.5px] text-muted-foreground mt-3 italic">Final pricing confirmed after an on-site assessment.</p>
+
+                {quote.autoRenews && (
+                  <p className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-orange-deep">
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Renews automatically each year · cancel anytime
+                  </p>
+                )}
+                <p className="text-[11.5px] text-muted-foreground mt-3 italic">
+                  Final pricing confirmed after your arborist&apos;s on-site assessment.
+                </p>
               </div>
             </CardContent>
           </Card>
 
-          {/* Add-Ons */}
-          {availableAddOns.length > 0 && (
+          {/* Add-on upsell — only ever offered against a program, never standalone. */}
+          {upsellAddOns.length > 0 && (
             <Card className="rounded-[16px] border-line shadow-brand-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="font-display font-semibold text-navy text-[22px]">Add-On Services (Optional)</CardTitle>
+                <CardTitle className="font-display font-semibold text-navy text-[22px]">Add to Your Plan (Optional)</CardTitle>
                 <p className="text-[13px] text-muted-foreground mt-2">
-                  Popular pairings for your property. Select any to include — pricing is confirmed during your visit.
+                  Common additions for a property like yours. Pricing is confirmed at your assessment.
                 </p>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {availableAddOns.map((addOn) => {
-                    const checked = selectedAddOns.includes(addOn.id)
+                  {upsellAddOns.map((addOn) => {
+                    const checked = extraAddOns.includes(addOn.name)
                     return (
                       <div key={addOn.id}
                         className={`p-[18px] border-2 rounded-[14px] transition-all duration-150 ${checked ? "border-orange bg-brand-select" : "border-line hover:border-[#c7d6ca]"}`}>
                         <div className="flex items-start">
-                          <Checkbox checked={checked} onCheckedChange={() => toggleAddOn(addOn.id)} className="mt-1 data-[state=checked]:bg-orange data-[state=checked]:border-orange data-[state=checked]:text-white" />
+                          <Checkbox checked={checked} onCheckedChange={() => toggleExtra(addOn.name)} className="mt-1 data-[state=checked]:bg-orange data-[state=checked]:border-orange data-[state=checked]:text-white" />
                           <div className="ml-3 flex-1">
                             <h4 className="font-semibold text-navy text-[15.5px]">{addOn.name}</h4>
                             <p className="text-[13px] text-muted-foreground mt-1">{addOn.blurb}</p>
@@ -348,10 +391,10 @@ export default function CheckoutPage() {
             <CardHeader className="pb-3">
               <CardTitle className="font-display font-semibold text-navy text-[22px] flex items-center gap-2.5">
                 <CalendarDays className="h-5 w-5 text-orange" />
-                Request a Visit
+                Request Your First Visit
               </CardTitle>
               <p className="text-sm text-muted-foreground mt-1">
-                A certified arborist will assess your property and confirm your program on-site.
+                A certified arborist walks the property, confirms your plan, and schedules the season&apos;s visits.
               </p>
             </CardHeader>
             <CardContent>
@@ -410,7 +453,7 @@ export default function CheckoutPage() {
             </CardContent>
           </Card>
 
-          {/* Order Summary */}
+          {/* Estimate summary */}
           <Card className="rounded-[16px] border-line shadow-brand-sm">
             <CardHeader className="pb-3">
               <CardTitle className="font-display font-semibold text-navy text-[22px]">Estimate Summary</CardTitle>
@@ -418,26 +461,30 @@ export default function CheckoutPage() {
             <CardContent>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">{serviceName}</span>
-                  <span className="font-medium">{priceText}{cadenceSuffix}</span>
+                  <span className="text-muted-foreground">
+                    {quote.name}{isProgram && quote.tierName ? ` — ${quote.tierName}` : ""}
+                  </span>
+                  <span className="font-medium">{priceText}{suffix}</span>
                 </div>
-                {selectedAddOns.length > 0 && (
+
+                {extraAddOns.length > 0 && (
                   <div>
-                    <p className="text-muted-foreground mb-1 mt-1">Add-ons requested:</p>
+                    <p className="text-muted-foreground mb-1 mt-1">Additions requested:</p>
                     <ul className="space-y-0.5">
-                      {selectedAddOns.map((id) => (
-                        <li key={id} className="text-foreground flex items-start gap-1.5">
+                      {extraAddOns.map((name) => (
+                        <li key={name} className="text-foreground flex items-start gap-1.5">
                           <Check className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
-                          <span>{getService(id)?.name}</span>
+                          <span>{name}</span>
                         </li>
                       ))}
                     </ul>
-                    <p className="text-[11px] text-muted-foreground mt-1.5 italic">Add-on pricing confirmed during your visit.</p>
+                    <p className="text-[11px] text-muted-foreground mt-1.5 italic">Pricing for these is confirmed at your assessment.</p>
                   </div>
                 )}
+
                 <div className="border-t border-border pt-2 mt-2 flex justify-between font-semibold text-foreground">
-                  <span>{cadence === "annual_program" ? "Annual estimate" : "Estimate"}</span>
-                  <span>{priceText}{cadenceSuffix}</span>
+                  <span>{isProgram ? "Annual estimate" : "Estimate"}</span>
+                  <span>{priceText}{suffix}</span>
                 </div>
               </div>
             </CardContent>
@@ -446,7 +493,7 @@ export default function CheckoutPage() {
           {/* Confirm */}
           <div className="pb-8">
             <button onClick={handleBook} disabled={!canBook || isLoading} className="btn-orange w-full text-lg">
-              {isLoading ? "Processing..." : "Confirm & Request Visit"}
+              {isLoading ? "Processing..." : isProgram ? "Confirm & Enroll" : "Confirm & Request Visit"}
             </button>
             {!canBook && <p className="text-xs text-muted-foreground text-center mt-3">Please fill in all required fields and select a visit date &amp; time</p>}
           </div>

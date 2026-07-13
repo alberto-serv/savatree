@@ -3,26 +3,24 @@
 import { useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import Image from "next/image"
-import { CalendarDays, Clock, MapPin } from "lucide-react"
-import { getService, type Service } from "@/lib/savatree-catalog"
-import { cadenceLabel } from "@/lib/savatree-services"
-
-function fmt(n: string): string {
-  const num = parseFloat(n)
-  if (isNaN(num)) return "0"
-  return num.toLocaleString("en-US", { maximumFractionDigits: 0 })
-}
+import { CalendarDays, Clock, MapPin, RefreshCw } from "lucide-react"
+import { money } from "@/lib/savatree-services"
 
 export default function ConfirmationPage() {
   const searchParams = useSearchParams()
   const [data, setData] = useState({
-    service: "",
-    serviceName: "",
-    vertical: "",
-    cadence: "",
+    kind: "program",
+    id: "",
+    name: "",
+    tierName: "",
+    visits: "",
     low: "0",
     high: "0",
+    monthlyLow: "0",
+    monthlyHigh: "0",
+    autoRenews: "false",
     summary: "",
+    lines: "",
     addOns: "",
     address: "",
     customerName: "",
@@ -38,11 +36,17 @@ export default function ConfirmationPage() {
       d[key] = searchParams.get(key) || (data as Record<string, string>)[key]
     }
     setData(d as typeof data)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
 
-  const addOns = data.addOns ? data.addOns.split(",").map((a) => a.trim()).filter(Boolean) : []
-  const cadenceSuffix = data.cadence === "annual_program" ? "/yr" : data.cadence === "seasonal" ? "/season" : ""
-  const priceText = data.high !== data.low ? `$${fmt(data.low)} – $${fmt(data.high)}` : `$${fmt(data.low)}`
+  const num = (s: string) => Number.parseInt(s || "0", 10) || 0
+  const isProgram = data.kind === "program"
+  const addOns = data.addOns ? data.addOns.split(" | ").map((a) => a.trim()).filter(Boolean) : []
+  const lines = data.lines ? data.lines.split(" | ").map((l) => l.trim()).filter(Boolean) : []
+  const suffix = isProgram ? "/yr" : ""
+  const priceText = data.high !== data.low
+    ? `$${money(num(data.low))} – $${money(num(data.high))}`
+    : `$${money(num(data.low))}`
   const quoteDate = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
 
   return (
@@ -50,7 +54,9 @@ export default function ConfirmationPage() {
       <div className="container mx-auto px-4 py-10 md:py-14">
         <div className="text-center mb-10 print:hidden">
           <h1 className="disp text-navy text-[clamp(34px,5vw,52px)] mb-2">You&apos;re All Set</h1>
-          <p className="text-muted-foreground text-base">Your estimate and requested visit are confirmed below</p>
+          <p className="text-muted-foreground text-base">
+            {isProgram ? "Your plan and first visit are confirmed below" : "Your estimate and requested visit are confirmed below"}
+          </p>
         </div>
 
         <div className="max-w-[760px] mx-auto bg-white border border-line rounded-[16px] shadow-brand-sm overflow-hidden print:shadow-none print:border-0">
@@ -95,47 +101,72 @@ export default function ConfirmationPage() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-3">
-                    A certified arborist will assess your property and confirm your program on-site.
+                    A certified arborist will assess your property and confirm your plan on-site.
                   </p>
                 </div>
               </div>
             )}
 
             <div className="border-t border-line-soft pt-5">
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">Selected Service</h3>
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">
+                {isProgram ? "Your Plan" : "Selected Service"}
+              </h3>
               <div className="bg-[#F3F8F3] border border-line-soft rounded-[14px] p-4">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <p className="text-[19px] font-semibold text-navy">{data.serviceName}</p>
+                  <p className="text-[19px] font-semibold text-navy">{data.name}</p>
                   <div className="flex items-baseline gap-1">
                     <span className="text-xl font-extrabold text-orange-deep">{priceText}</span>
-                    {cadenceSuffix && <span className="text-sm text-body font-semibold">{cadenceSuffix}</span>}
+                    {suffix && <span className="text-sm text-body font-semibold">{suffix}</span>}
                   </div>
                 </div>
-                {data.cadence && <p className="text-sm text-muted-foreground mt-1">{cadenceLabel(data.cadence as Service["cadence"])}</p>}
+
+                {isProgram && data.tierName && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {data.tierName}
+                    {data.visits && ` · ${data.visits} visits a year`}
+                    {num(data.monthlyHigh) > 0 && ` · ≈ $${money(num(data.monthlyLow))}–$${money(num(data.monthlyHigh))}/mo`}
+                  </p>
+                )}
                 {data.summary && <p className="text-sm text-muted-foreground mt-1">{data.summary}</p>}
+
+                {lines.length > 0 && (
+                  <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
+                    {lines.map((line, i) => (
+                      <li key={i}>&middot; {line}</li>
+                    ))}
+                  </ul>
+                )}
+
+                {data.autoRenews === "true" && (
+                  <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-orange-deep">
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Renews automatically each year · cancel anytime
+                  </p>
+                )}
               </div>
             </div>
 
             {addOns.length > 0 && (
               <div className="border-t border-line-soft pt-5">
-                <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">Add-On Services</h3>
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">Plan Additions</h3>
                 <ul className="space-y-1.5 text-sm">
                   {addOns.map((addon, i) => (
                     <li key={i} className="text-foreground">&middot; {addon}</li>
                   ))}
                 </ul>
-                <p className="text-[11px] text-muted-foreground mt-2 italic">Add-on pricing confirmed during your visit.</p>
+                <p className="text-[11px] text-muted-foreground mt-2 italic">Additions added at checkout are priced at your assessment.</p>
               </div>
             )}
 
             <div className="border-t border-line-soft pt-5">
               <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">Estimate</h3>
               <div className="flex justify-between font-bold">
-                <span className="text-navy">{data.cadence === "annual_program" ? "Annual Estimate" : "Estimate"}</span>
-                <span className="text-navy text-base">{priceText}{cadenceSuffix}</span>
+                <span className="text-navy">{isProgram ? "Annual Estimate" : "Estimate"}</span>
+                <span className="text-navy text-base">{priceText}{suffix}</span>
               </div>
               <p className="text-[11px] text-muted-foreground mt-3">
-                Estimate only. Final pricing is set per-property by a certified arborist after assessment and may vary with tree size, species, access, and local branch rates.
+                Estimate only. Your final plan is designed by an ISA Certified Arborist after a property assessment and may
+                vary with property remeasurement, tree size, species, and local branch rates.
               </p>
             </div>
           </div>

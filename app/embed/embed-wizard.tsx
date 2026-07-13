@@ -55,7 +55,7 @@ type ScreenId =
   | "basis"         // the program's price driver: plants, turf sq ft, beds…
   | "plantSize"     // PHC only, and the dominant cost driver
   | "organic"       // style choice, offered where the program supports it
-  | "treeSize" | "treeScope" | "treeAccess" | "treeProximity"
+  | "treeSize" | "treeScope" | "treeAccess"
   | "stump"         // stump grinding: diameter + count
   | "plan"          // tier picker
   | "estimate"      // the range, for jobs that produce one
@@ -73,7 +73,7 @@ const PHASE_OF: Record<ScreenId, Phase> = {
   project: "Details", emergency: "Details",
   basis: "Details", plantSize: "Details", organic: "Details",
   treeSize: "Details", treeScope: "Details", treeAccess: "Details",
-  treeProximity: "Details", stump: "Details",
+  stump: "Details",
   plan: "Estimate",
   estimate: "Estimate",
   visit: "Schedule", schedule: "Schedule",
@@ -143,7 +143,7 @@ function screensFor(vertical: Vertical | null, projectId: string | null, job: Tr
     // Nobody with a limb through their roof wants a pricing wizard.
     if (project.urgent) return [...s, "emergency"]
 
-    if (job) s.push("treeSize", "treeScope", "treeAccess", "treeProximity", "estimate")
+    if (job) s.push("treeSize", "treeScope", "treeAccess", "estimate")
     else if (project.id === "stump_grinding") s.push("stump", "estimate")
     // Consultation projects (landscape, commercial, holiday lighting) skip the
     // estimate — an arborist scopes them, we don't — but they still book a visit.
@@ -172,12 +172,6 @@ const ACCESS_CHOICES = [
   { value: "tight", label: "Tight", detail: "Backyard, gated, no truck" },
 ] as const
 
-const PROXIMITY_CHOICES = [
-  { value: "open_yard", label: "Open yard", detail: "Nothing beneath it" },
-  { value: "near_structure", label: "Near a structure", detail: "House, fence, shed" },
-  { value: "over_structure_or_lines", label: "Over a roof or lines", detail: "Structure or power lines" },
-] as const
-
 // ─── Widget ───────────────────────────────────────────────────────────────────
 
 export function EmbedWizard() {
@@ -187,11 +181,11 @@ export function EmbedWizard() {
   const [projectId, setProjectId] = useState<string | null>(null)
   const [inputs, setInputs] = useState<PropertyInputs>({})
   const [tier, setTier] = useState<TierLevel>("better")
-  // condition and lean are absent on purpose — the widget doesn't ask, so it
-  // doesn't pretend to know. The model supplies its own defaults.
+  // Only what the widget actually asks for. Proximity, condition, and lean are
+  // absent on purpose — we don't ask, so we don't pretend to know, and the model
+  // supplies its own defaults (near a structure, healthy, straight).
   const [tree, setTree] = useState<TreeInputs>({
-    job: "removal", heightFt: 40, count: 1,
-    access: "moderate", proximity: "near_structure",
+    job: "removal", heightFt: 40, count: 1, access: "moderate",
   })
   const [step, setStep] = useState(0)
   const [visitType, setVisitType] = useState<VisitType | null>(null)
@@ -241,12 +235,13 @@ export function EmbedWizard() {
 
   const planQuote = tierQuotes?.[tier] ?? null
 
-  // The widget no longer asks about condition or lean, so the model falls back
-  // to its defaults — healthy, straight — and cannot tell a sound oak from a
-  // decayed leaner. That's fine for a range, but it must NOT be allowed to clear
-  // the direct-book gate: a short "healthy" tree would otherwise book a crew
-  // blind at a healthy tree's price. Booking is off, so every tree job routes to
-  // the free arborist assessment, which is where the condition gets judged.
+  // The widget asks three things about a tree — size, count, access — so the
+  // model fills the rest from its defaults: a healthy, straight tree standing
+  // near a structure. It therefore cannot tell a sound oak in an open yard from
+  // a decayed leaner hanging over a roof. That's acceptable for a RANGE; it is
+  // not acceptable for a booking. Direct booking is off, so every tree job
+  // routes to the free arborist assessment — which is the one place a drop zone
+  // and a hollow trunk can actually be judged.
   const treeEstimate = useMemo(
     () => (job ? estimateTreeWork({ ...tree, job }, { allowDirectBooking: false }) : null),
     [job, tree],
@@ -529,11 +524,6 @@ export function EmbedWizard() {
               </Screen>
             )}
 
-            {screen === "treeProximity" && (
-              <Screen title="What's underneath it?">
-                <Choices choices={PROXIMITY_CHOICES} value={tree.proximity ?? "near_structure"} onChange={(v) => setTreeInput("proximity", v)} />
-              </Screen>
-            )}
 
             {screen === "stump" && (
               <Screen title="Tell us about the stump">

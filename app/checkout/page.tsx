@@ -6,13 +6,12 @@ import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   ArrowLeft, Check, MapPin, AlertCircle, Loader2, LocateFixed,
-  ChevronLeft, ChevronRight, CalendarDays, RefreshCw,
+  ChevronLeft, ChevronRight, CalendarDays, RefreshCw, Minus, Plus, BadgeCheck,
 } from "lucide-react"
 import { addonsForProgram, money } from "@/lib/savatree-services"
-import { getProgram, type TierLevel } from "@/lib/savatree-catalog"
+import { getProgram, type TierLevel, type Addon } from "@/lib/savatree-catalog"
 
 // ─── Scheduling helpers ───────────────────────────────────────────────────────
 
@@ -70,7 +69,8 @@ export default function CheckoutPage() {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [isGeolocating, setIsGeolocating] = useState(false)
   const [addressNotRecognized, setAddressNotRecognized] = useState(false)
-  const [extraAddOns, setExtraAddOns] = useState<string[]>([])
+  const [extraAddOns, setExtraAddOns] = useState<string[]>([]) // add-on ids
+  const [addOnCounts, setAddOnCounts] = useState<Record<string, number>>({})
   const [customerInfo, setCustomerInfo] = useState({ firstName: "", lastName: "", email: "" })
   const [phoneNumber, setPhoneNumber] = useState("")
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
@@ -91,6 +91,8 @@ export default function CheckoutPage() {
   ], [])
 
   const isProgram = quote.kind === "program"
+  // "Skip to booking" — no plan, no estimate, just get an arborist to the property.
+  const isVisit = quote.kind === "visit"
 
   // Anything eligible for this program the customer doesn't already have — neither
   // picked in the estimator nor bundled free at their tier. Never re-sell what the
@@ -179,9 +181,28 @@ export default function CheckoutPage() {
     setShowSuggestions(false); setAddressSuggestions([]); setAddressInput(s); handleAddressLookup(s)
   }, [handleAddressLookup])
 
-  const toggleExtra = useCallback((name: string) => {
-    setExtraAddOns((prev) => prev.includes(name) ? prev.filter((a) => a !== name) : [...prev, name])
+  const toggleExtra = useCallback((id: string) => {
+    setExtraAddOns((prev) => prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id])
   }, [])
+
+  const setAddOnCount = useCallback((id: string, n: number) => {
+    setAddOnCounts((prev) => ({ ...prev, [id]: n }))
+  }, [])
+
+  /** "Emerald Ash Borer Protection (2 ash trees)" — the count rides along to the arborist. */
+  const addOnLabel = useCallback((addon: Addon) => {
+    const subset = addon.plantSubset
+    if (!subset) return addon.name
+    const n = addOnCounts[addon.id] ?? subset.default
+    const unit = n === 1 ? subset.unit.replace(/s$/, "") : subset.unit
+    return `${addon.name} (${n} ${unit})`
+  }, [addOnCounts])
+
+  /** Selected add-ons as human labels, counts folded in. */
+  const extraAddOnLabels = useMemo(
+    () => upsellAddOns.filter((a) => extraAddOns.includes(a.id)).map(addOnLabel),
+    [upsellAddOns, extraAddOns, addOnLabel],
+  )
 
   const priceText = quote.high !== quote.low ? `$${money(quote.low)} – $${money(quote.high)}` : `$${money(quote.low)}`
   const suffix = isProgram ? "/yr" : ""
@@ -206,7 +227,7 @@ export default function CheckoutPage() {
       autoRenews: String(quote.autoRenews),
       summary: quote.summary,
       lines: quote.lines.join(" | "),
-      addOns: [...quote.addOns, ...extraAddOns].join(" | "),
+      addOns: [...quote.addOns, ...extraAddOnLabels].join(" | "),
       address: [serviceAddress, addressLine2.trim()].filter(Boolean).join(", "),
       customerName: `${customerInfo.firstName} ${customerInfo.lastName}`.trim(),
       customerEmail: customerInfo.email,
@@ -215,7 +236,7 @@ export default function CheckoutPage() {
       visitTime: visitSlot ? visitSlot.time : "",
     })
     window.location.href = `/checkout/confirmation?${params.toString()}`
-  }, [quote, extraAddOns, serviceAddress, addressLine2, customerInfo, phoneNumber, selectedDate, selectedTimeSlot])
+  }, [quote, extraAddOnLabels, serviceAddress, addressLine2, customerInfo, phoneNumber, selectedDate, selectedTimeSlot])
 
   const visibleDates = availableDates.slice(calendarWeekStart, calendarWeekStart + 5)
   const canGoBack = calendarWeekStart > 0
@@ -227,15 +248,46 @@ export default function CheckoutPage() {
         <div className="mb-8">
           <Link href="/" className="inline-flex items-center text-orange-deep hover:text-orange mb-5 text-sm font-bold transition-colors">
             <ArrowLeft className="h-4 w-4 mr-1.5" />
-            Back to estimate
+            {isVisit ? "Back to home" : "Back to estimate"}
           </Link>
           <h1 className="disp text-navy text-[clamp(34px,5vw,52px)] text-center">
-            {isProgram ? "Enroll in Your Plan" : "Schedule Your Service"}
+            {isVisit ? "Book an Arborist Visit" : isProgram ? "Enroll in Your Plan" : "Schedule Your Service"}
           </h1>
         </div>
 
         <div className="max-w-2xl mx-auto space-y-5">
-          {/* Plan summary */}
+          {/* Skipped the estimator — there's no plan yet, so promise the visit, not a price. */}
+          {isVisit ? (
+            <Card className="rounded-[16px] border-line shadow-brand-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="font-display font-semibold text-navy text-[22px]">Your Free Arborist Visit</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="bg-brand-band border border-[#dbe7dd] p-6 rounded-[14px]">
+                  <p className="text-[15px] text-body">
+                    No estimate needed. An ISA Certified Arborist walks your property, listens to what you
+                    care about, and designs a plan around what they find — trees, lawn, pests, and all.
+                  </p>
+                  <ul className="mt-4 space-y-2">
+                    {[
+                      "A credentialed arborist assesses your property in person",
+                      "You get a written plan and pricing built for your yard",
+                      "No obligation — nothing is booked until you say so",
+                    ].map((line) => (
+                      <li key={line} className="flex items-start gap-2 text-[13.5px] text-body">
+                        <BadgeCheck className="h-4 w-4 text-orange mt-0.5 shrink-0" />
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-[11.5px] text-muted-foreground mt-4 italic">
+                    Prefer to see numbers first?{" "}
+                    <Link href="/" className="font-semibold text-orange-deep hover:underline not-italic">Build a plan instead</Link>.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
           <Card className="rounded-[16px] border-line shadow-brand-sm">
             <CardHeader className="pb-3">
               <CardTitle className="font-display font-semibold text-navy text-[22px]">
@@ -284,6 +336,7 @@ export default function CheckoutPage() {
               </div>
             </CardContent>
           </Card>
+          )}
 
           {/* Add-on upsell — only ever offered against a program, never standalone. */}
           {upsellAddOns.length > 0 && (
@@ -297,17 +350,42 @@ export default function CheckoutPage() {
               <CardContent>
                 <div className="space-y-3">
                   {upsellAddOns.map((addOn) => {
-                    const checked = extraAddOns.includes(addOn.name)
+                    const checked = extraAddOns.includes(addOn.id)
+                    const subset = addOn.plantSubset
+                    const count = subset ? addOnCounts[addOn.id] ?? subset.default : 0
                     return (
                       <div key={addOn.id}
-                        className={`p-[18px] border-2 rounded-[14px] transition-all duration-150 ${checked ? "border-orange bg-brand-select" : "border-line hover:border-[#c7d6ca]"}`}>
-                        <div className="flex items-start">
-                          <Checkbox checked={checked} onCheckedChange={() => toggleExtra(addOn.name)} className="mt-1 data-[state=checked]:bg-orange data-[state=checked]:border-orange data-[state=checked]:text-white" />
-                          <div className="ml-3 flex-1">
-                            <h4 className="font-semibold text-navy text-[15.5px]">{addOn.name}</h4>
-                            <p className="text-[13px] text-muted-foreground mt-1">{addOn.blurb}</p>
+                        className={`border-2 rounded-[14px] transition-all duration-150 ${checked ? "border-orange bg-brand-select" : "border-line hover:border-[#c7d6ca]"}`}>
+                        {/* The whole row toggles — a 16px checkbox is a mean click target. */}
+                        <button type="button" onClick={() => toggleExtra(addOn.id)} aria-pressed={checked}
+                          className="flex w-full items-start p-[18px] text-left">
+                          <span className={`flex h-6 w-6 items-center justify-center rounded-md border-2 shrink-0 mt-0.5 ${checked ? "border-orange bg-orange text-white" : "border-line bg-white"}`}>
+                            {checked ? <Check className="h-4 w-4" /> : null}
+                          </span>
+                          <span className="ml-3 flex-1">
+                            <span className="block font-semibold text-navy text-[15.5px]">{addOn.name}</span>
+                            <span className="block text-[13px] text-muted-foreground mt-1">{addOn.blurb}</span>
+                          </span>
+                        </button>
+
+                        {/* Subset add-ons treat only some of the plants (EAB → ash trees).
+                            Ask how many so the arborist arrives with the right scope. */}
+                        {checked && subset && (
+                          <div className="mx-[18px] mb-[18px] ml-[54px] flex flex-wrap items-center gap-3 rounded-xl border border-line-soft bg-white/70 px-4 py-3">
+                            <span className="text-[13.5px] font-semibold text-navy">{subset.label}</span>
+                            <div className="flex items-center gap-2 ml-auto">
+                              <button type="button" aria-label={`Fewer ${subset.unit}`} onClick={() => setAddOnCount(addOn.id, Math.max(1, count - 1))} disabled={count <= 1}
+                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-navy hover:border-orange/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                                <Minus className="h-4 w-4" />
+                              </button>
+                              <span className="w-8 text-center text-[18px] font-extrabold text-navy tabular-nums">{count}</span>
+                              <button type="button" aria-label={`More ${subset.unit}`} onClick={() => setAddOnCount(addOn.id, Math.min(subset.max, count + 1))} disabled={count >= subset.max}
+                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-navy hover:border-orange/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                                <Plus className="h-4 w-4" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     )
                   })}
@@ -453,47 +531,49 @@ export default function CheckoutPage() {
             </CardContent>
           </Card>
 
-          {/* Estimate summary */}
-          <Card className="rounded-[16px] border-line shadow-brand-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="font-display font-semibold text-navy text-[22px]">Estimate Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">
-                    {quote.name}{isProgram && quote.tierName ? ` — ${quote.tierName}` : ""}
-                  </span>
-                  <span className="font-medium">{priceText}{suffix}</span>
-                </div>
-
-                {extraAddOns.length > 0 && (
-                  <div>
-                    <p className="text-muted-foreground mb-1 mt-1">Additions requested:</p>
-                    <ul className="space-y-0.5">
-                      {extraAddOns.map((name) => (
-                        <li key={name} className="text-foreground flex items-start gap-1.5">
-                          <Check className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
-                          <span>{name}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="text-[11px] text-muted-foreground mt-1.5 italic">Pricing for these is confirmed at your assessment.</p>
+          {/* Estimate summary — nothing to total on the skip-to-booking path. */}
+          {!isVisit && (
+            <Card className="rounded-[16px] border-line shadow-brand-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="font-display font-semibold text-navy text-[22px]">Estimate Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">
+                      {quote.name}{isProgram && quote.tierName ? ` — ${quote.tierName}` : ""}
+                    </span>
+                    <span className="font-medium">{priceText}{suffix}</span>
                   </div>
-                )}
 
-                <div className="border-t border-border pt-2 mt-2 flex justify-between font-semibold text-foreground">
-                  <span>{isProgram ? "Annual estimate" : "Estimate"}</span>
-                  <span>{priceText}{suffix}</span>
+                  {extraAddOnLabels.length > 0 && (
+                    <div>
+                      <p className="text-muted-foreground mb-1 mt-1">Additions requested:</p>
+                      <ul className="space-y-0.5">
+                        {extraAddOnLabels.map((label) => (
+                          <li key={label} className="text-foreground flex items-start gap-1.5">
+                            <Check className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+                            <span>{label}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-[11px] text-muted-foreground mt-1.5 italic">Pricing for these is confirmed at your assessment.</p>
+                    </div>
+                  )}
+
+                  <div className="border-t border-border pt-2 mt-2 flex justify-between font-semibold text-foreground">
+                    <span>{isProgram ? "Annual estimate" : "Estimate"}</span>
+                    <span>{priceText}{suffix}</span>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Confirm */}
           <div className="pb-8">
             <button onClick={handleBook} disabled={!canBook || isLoading} className="btn-orange w-full text-lg">
-              {isLoading ? "Processing..." : isProgram ? "Confirm & Enroll" : "Confirm & Request Visit"}
+              {isLoading ? "Processing..." : isVisit ? "Confirm & Book Visit" : isProgram ? "Confirm & Enroll" : "Confirm & Request Visit"}
             </button>
             {!canBook && <p className="text-xs text-muted-foreground text-center mt-3">Please fill in all required fields and select a visit date &amp; time</p>}
           </div>

@@ -41,6 +41,8 @@ export default function ConfirmationPage() {
 
   const num = (s: string) => Number.parseInt(s || "0", 10) || 0
   const isProgram = data.kind === "program"
+  // Skip-to-booking: an arborist visit with no plan behind it and nothing to total.
+  const isVisit = data.kind === "visit"
   const addOns = data.addOns ? data.addOns.split(" | ").map((a) => a.trim()).filter(Boolean) : []
   const lines = data.lines ? data.lines.split(" | ").map((l) => l.trim()).filter(Boolean) : []
   const suffix = isProgram ? "/yr" : ""
@@ -55,7 +57,11 @@ export default function ConfirmationPage() {
         <div className="text-center mb-10 print:hidden">
           <h1 className="disp text-navy text-[clamp(34px,5vw,52px)] mb-2">You&apos;re All Set</h1>
           <p className="text-muted-foreground text-base">
-            {isProgram ? "Your plan and first visit are confirmed below" : "Your estimate and requested visit are confirmed below"}
+            {isVisit
+              ? "Your arborist visit is confirmed below"
+              : isProgram
+              ? "Your plan and first visit are confirmed below"
+              : "Your estimate and requested visit are confirmed below"}
           </p>
         </div>
 
@@ -109,16 +115,25 @@ export default function ConfirmationPage() {
 
             <div className="border-t border-line-soft pt-5">
               <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">
-                {isProgram ? "Your Plan" : "Selected Service"}
+                {isVisit ? "What You Booked" : isProgram ? "Your Plan" : "Selected Service"}
               </h3>
               <div className="bg-[#F3F8F3] border border-line-soft rounded-[14px] p-4">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <p className="text-[19px] font-semibold text-navy">{data.name}</p>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-xl font-extrabold text-orange-deep">{priceText}</span>
-                    {suffix && <span className="text-sm text-body font-semibold">{suffix}</span>}
-                  </div>
+                  {!isVisit && (
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-xl font-extrabold text-orange-deep">{priceText}</span>
+                      {suffix && <span className="text-sm text-body font-semibold">{suffix}</span>}
+                    </div>
+                  )}
                 </div>
+
+                {isVisit && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    An ISA Certified Arborist will walk your property and design a plan around what they
+                    find. Pricing comes with that plan — nothing is owed for the visit.
+                  </p>
+                )}
 
                 {isProgram && data.tierName && (
                   <p className="text-sm text-muted-foreground mt-1">
@@ -158,16 +173,26 @@ export default function ConfirmationPage() {
               </div>
             )}
 
+            {/* Nothing to total on a skip-to-booking visit — don't print a $0 estimate. */}
             <div className="border-t border-line-soft pt-5">
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">Estimate</h3>
-              <div className="flex justify-between font-bold">
-                <span className="text-navy">{isProgram ? "Annual Estimate" : "Estimate"}</span>
-                <span className="text-navy text-base">{priceText}{suffix}</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-3">
-                Estimate only. Your final plan is designed by an ISA Certified Arborist after a property assessment and may
-                vary with property remeasurement, tree size, species, and local branch rates.
-              </p>
+              {isVisit ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Your visit is free and carries no obligation. Pricing arrives with the plan your arborist
+                  designs, and varies with property size, tree size, species, and local branch rates.
+                </p>
+              ) : (
+                <>
+                  <h3 className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground mb-3">Estimate</h3>
+                  <div className="flex justify-between font-bold">
+                    <span className="text-navy">{isProgram ? "Annual Estimate" : "Estimate"}</span>
+                    <span className="text-navy text-base">{priceText}{suffix}</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-3">
+                    Estimate only. Your final plan is designed by an ISA Certified Arborist after a property assessment and may
+                    vary with property remeasurement, tree size, species, and local branch rates.
+                  </p>
+                </>
+              )}
             </div>
           </div>
 

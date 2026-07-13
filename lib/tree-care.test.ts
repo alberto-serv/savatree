@@ -174,6 +174,105 @@ test("emergencies are dispatched, never priced", () => {
   assert.doesNotMatch(t.message, /\$/);
 });
 
+// ─── California — the city is part of the price ──────────────────────────────
+
+test("CA: a mature native oak removal is protected, permitted, and never bookable", () => {
+  const q = estimateTreeWork({
+    job: "removal",
+    heightFt: 25, // small, clean, open — every other rule says "book it"
+    diameterInches: 14,
+    access: "open",
+    proximity: "open_yard",
+    condition: "healthy",
+    species: "native_oak",
+  });
+
+  assert.ok(q.permit?.isProtected, "a 14-inch coast live oak is protected in most CA cities");
+  assert.equal(q.permit?.basis, "species");
+  assert.equal(q.permit?.mayBeDenied, true, "cities routinely refuse to let a healthy oak go");
+
+  // The whole point: this would otherwise have booked a crew.
+  assert.equal(q.nextStep, "book_assessment");
+
+  // The city's money is IN the estimate, and itemized so it reads as the city's.
+  const withoutPermit = estimateTreeWork({
+    job: "removal", heightFt: 25, diameterInches: 14,
+    access: "open", proximity: "open_yard", condition: "healthy",
+  });
+  assert.ok(
+    q.estimate.high > withoutPermit.estimate.high,
+    "permit, report, and mitigation are real costs — they belong in the total",
+  );
+  assert.ok(q.lines.some((l) => /permit/i.test(l.label)), "the permit must be a visible line item");
+  assert.ok(q.lines.some((l) => /replacement planting|in-lieu/i.test(l.label)));
+
+  // And the advice points where it honestly should.
+  assert.match(q.upsell!, /Plant Health Care/);
+  assert.match(q.disclaimer, /city or county/);
+});
+
+test("CA: protection is by species AND by size — a big anything is a heritage tree", () => {
+  // A fruit tree is not a protected species...
+  const small = estimateTreeWork({
+    job: "removal", heightFt: 25, diameterInches: 10, species: "fruit_ornamental",
+  });
+  assert.equal(small.permit?.isProtected, false);
+  assert.equal(small.permit?.cost, null);
+
+  // ...until it's heritage-sized.
+  const huge = estimateTreeWork({
+    job: "removal", heightFt: 70, diameterInches: 30, species: "fruit_ornamental",
+  });
+  assert.equal(huge.permit?.isProtected, true);
+  assert.equal(huge.permit?.basis, "heritage_size");
+  // Size alone doesn't imply the city will refuse — that's a species judgment.
+  assert.equal(huge.permit?.mayBeDenied, false);
+});
+
+test("CA: 'not sure' is treated as the worst plausible case, never the best", () => {
+  const unknown = estimateTreeWork({
+    job: "removal", heightFt: 40, diameterInches: 13, species: "unknown",
+  });
+
+  assert.equal(unknown.permit?.isProtected, true, "an unidentified tree might be an oak");
+  assert.equal(unknown.permit?.basis, "unidentified");
+  assert.ok(
+    unknown.needsArboristBecause.some((n) => /Identifying the species/i.test(n)),
+    "the unknown must route to someone who can resolve it",
+  );
+  assert.equal(unknown.nextStep, "book_assessment");
+});
+
+test("CA: a dead protected tree is expedited, not denied — and cabling needs no permit", () => {
+  const dead = estimateTreeWork({
+    job: "removal", heightFt: 40, diameterInches: 20, species: "native_oak",
+    condition: "dead_or_decayed",
+  });
+  assert.equal(dead.permit?.mayBeDenied, false, "no city makes you keep a dead hazard");
+  assert.deepEqual(dead.permit?.weeks, [0, 2]);
+  assert.ok(dead.permit!.cost!.high < 1000, "documentation, not a full permit application");
+
+  // Cabling PRESERVES the tree. Cities have no reason to stand in the way.
+  const cabling = estimateTreeWork({
+    job: "cabling", heightFt: 40, diameterInches: 20, species: "native_oak",
+  });
+  assert.equal(cabling.permit?.isProtected, true);
+  assert.equal(cabling.permit?.cost, null, "you don't need a permit to keep a tree alive");
+  assert.equal(cabling.permit?.mayBeDenied, false);
+});
+
+test("CA: omitting the species leaves the model exactly as it was", () => {
+  const base = { job: "removal" as const, heightFt: 50, diameterInches: 18, access: "open" as const };
+
+  const withoutSpecies = estimateTreeWork(base);
+  assert.equal(withoutSpecies.permit, undefined, "no species → no ordinance logic at all");
+  assert.doesNotMatch(withoutSpecies.disclaimer, /city or county/);
+
+  // A non-protected species must price identically to no species at all.
+  const notProtected = estimateTreeWork({ ...base, species: "palm" });
+  assert.deepEqual(notProtected.estimate, withoutSpecies.estimate);
+});
+
 test("count scales the job; stump grinding only attaches to removals", () => {
   const one = estimateTreeWork({ job: "removal", heightFt: 40, count: 1 });
   const three = estimateTreeWork({ job: "removal", heightFt: 40, count: 3 });

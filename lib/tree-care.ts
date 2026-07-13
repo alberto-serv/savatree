@@ -29,6 +29,14 @@
  * ------------------------------------------------------------------
  */
 
+import {
+  assessProtection,
+  protectionUpsell,
+  CA_ORDINANCE_DISCLAIMER,
+  type TreeSpecies,
+  type PermitAssessment,
+} from "./california-trees";
+
 // ─────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────
@@ -52,11 +60,18 @@ export interface TreeInputs {
   condition?: "healthy" | "declining" | "dead_or_decayed"; // default "healthy"
   lean?: "none" | "moderate" | "severe"; // default "none"
   addStumpGrinding?: boolean;
+  /**
+   * California only. Omit it and the model behaves exactly as it always has —
+   * no permits, no ordinance logic. Supply it and protected-tree rules apply
+   * (see california-trees.ts), because in California the city is frequently the
+   * single largest cost and delay in a removal.
+   */
+  species?: TreeSpecies;
 }
 
 export interface TreeEstimate {
   job: TreeJob;
-  estimate: PriceBand; // total, all trees, incl. stump grinding
+  estimate: PriceBand; // total, all trees, incl. stump grinding and permits
   perTree: PriceBand;
   count: number;
   confidence: Confidence;
@@ -67,6 +82,8 @@ export interface TreeEstimate {
   upsell: string | null;
   lines: { label: string; band: PriceBand }[];
   disclaimer: string;
+  /** Present only when a species was supplied. See california-trees.ts. */
+  permit?: PermitAssessment;
 }
 
 /** A cost multiplier plus how much its unknowns force the band open. */
@@ -255,38 +272,75 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
 
   let total: PriceBand = { ...treeWork };
 
+  const dbh = i.diameterInches ?? round(expectedDbh(i.heightFt));
+
   if (i.addStumpGrinding && i.job === "removal") {
-    const inches = i.diameterInches ?? round(expectedDbh(i.heightFt));
-    const stump = priceStumpGrinding(inches, count);
+    const stump = priceStumpGrinding(dbh, count);
     total = { low: total.low + stump.low, high: total.high + stump.high };
     lines.push({
-      label: `Stump grinding — ${inches}" diameter${count > 1 ? ` × ${count}` : ""}`,
+      label: `Stump grinding — ${dbh}" diameter${count > 1 ? ` × ${count}` : ""}`,
       band: { low: round(stump.low), high: round(stump.high) },
     });
   }
 
-  // 8. Say out loud why the band is the width it is.
-  const factors = [access, proximity, condition, lean]
-    .map((f) => f.note)
-    .filter((n): n is string => n !== null);
+  // 8. California: the city is part of the price. A protected-tree permit, its
+  //    arborist report, and its replacement planting are real money the customer
+  //    will pay, so they belong in the estimate — itemized, so it's visible that
+  //    they're paying the city and not us.
+  const permit = i.species
+    ? assessProtection({ species: i.species, dbhInches: dbh, job: i.job, count, condition: i.condition })
+    : undefined;
 
-  const needsArboristBecause = [access, proximity, condition, lean]
-    .filter((f) => f.u >= ARBORIST_THRESHOLD && f.note !== null)
-    .map((f) => f.note as string);
+  if (permit?.cost) {
+    total = { low: total.low + permit.cost.low, high: total.high + permit.cost.high };
+    permit.lines.forEach((l) =>
+      lines.push({ label: l.label, band: { low: round(l.band.low), high: round(l.band.high) } }),
+    );
+  }
 
-  // 9. Confidence follows uncertainty, not price.
+  // 9. Say out loud why the band is the width it is.
+  const factors = [
+    ...[access, proximity, condition, lean].map((f) => f.note).filter((n): n is string => n !== null),
+    ...(permit?.reasons ?? []),
+  ];
+
+  const needsArboristBecause = [
+    ...[access, proximity, condition, lean]
+      .filter((f) => f.u >= ARBORIST_THRESHOLD && f.note !== null)
+      .map((f) => f.note as string),
+    // A permit is not something the customer can sort out from a web form.
+    ...(permit?.isProtected
+      ? [
+          permit.basis === "unidentified"
+            ? "Identifying the species — it decides whether this needs a city permit at all"
+            : "Confirming your city's tree ordinance and filing the permit on your behalf",
+        ]
+      : []),
+  ];
+
+  // 10. Confidence follows uncertainty, not price.
   const confidence: Confidence =
     uncertainty >= 0.35 ? "low" : uncertainty >= 0.15 ? "medium" : "high";
 
-  // 10. The key product decision. Small, clean, healthy, open-access work books
+  // 11. The key product decision. Small, clean, healthy, open-access work books
   //     outright. EVERYTHING ELSE BOOKS THE ARBORIST, NOT THE JOB.
+  //
+  //     A protected tree is never bookable, at any size. You cannot sell a
+  //     removal that the city has not approved — and may never approve. Booking a
+  //     crew against a permit that doesn't exist is how a customer ends up with a
+  //     fine and SavATree ends up in it with them.
   const allowDirectBooking = opts.allowDirectBooking ?? ALLOW_DIRECT_BOOKING;
   const bookable =
     allowDirectBooking &&
     confidence === "high" &&
     i.heightFt <= 30 &&
-    (i.condition ?? "healthy") === "healthy";
+    (i.condition ?? "healthy") === "healthy" &&
+    !(permit?.isProtected && permit.cost !== null);
   const nextStep: NextStep = bookable ? "book_job" : "book_assessment";
+
+  // The permit dominates the conversation when there is one: "the city may say
+  // no" outranks "your tree might be savable", and it leads to the same place.
+  const protectionAdvice = permit ? protectionUpsell(permit) : null;
 
   return {
     job: i.job,
@@ -298,9 +352,12 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
     nextStep,
     factors,
     needsArboristBecause,
-    upsell: upsellFor(i),
+    upsell: protectionAdvice ?? upsellFor(i),
     lines,
-    disclaimer: nextStep === "book_job" ? DISCLAIMER_BOOKABLE : DISCLAIMER_ASSESSMENT,
+    disclaimer:
+      (nextStep === "book_job" ? DISCLAIMER_BOOKABLE : DISCLAIMER_ASSESSMENT) +
+      (permit?.isProtected ? ` ${CA_ORDINANCE_DISCLAIMER}` : ""),
+    permit,
   };
 }
 

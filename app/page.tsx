@@ -27,6 +27,7 @@ import {
   estimateTreeWork, triageEmergency,
   type TreeInputs, type TreeJob, type Confidence,
 } from "@/lib/tree-care"
+import { CA_SPECIES, type TreeSpecies } from "@/lib/california-trees"
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -806,6 +807,10 @@ function TreeEstimator({ project, job }: { project: Project; job: TreeJob }) {
     proximity: "near_structure",
     condition: "healthy",
     lean: "none",
+    // "Not sure" is the truthful starting state, and the model treats it as the
+    // worst plausible case — possibly a protected oak. The estimate starts wide
+    // and visibly narrows the moment they tell us what the tree is.
+    species: "unknown",
   })
 
   // Keep the job in sync when the customer switches between pruning/removal/cabling.
@@ -843,6 +848,21 @@ function TreeEstimator({ project, job }: { project: Project; job: TreeJob }) {
       <StepHeader step={3} title={project.name} subtitle="Tell us about the tree. We'll give you an honest range — an arborist confirms it on site." />
 
       <div className="rounded-[18px] border border-line bg-white shadow-brand-sm divide-y divide-line-soft">
+        {/* First question, because in California it's the one that decides
+            whether this is a tree job or a permit application. */}
+        <div className="p-7 md:p-9">
+          <FieldLabel
+            label="What kind of tree is it?"
+            help="California cities protect native oaks, redwoods, and any tree large enough to count as a heritage tree."
+          />
+          <ChoiceGroup
+            choices={CA_SPECIES.map((s) => ({ value: s.id, label: s.label, detail: s.detail }))}
+            value={t.species ?? "unknown"}
+            onChange={(v) => set("species", v as TreeSpecies)}
+            columns={4}
+          />
+        </div>
+
         <div className="p-7 md:p-9">
           <FieldLabel label="How tall is the tree?" help="A rough guess is fine — compare it to your house." />
           <MeasureSlider value={inputs.heightFt} min={10} max={120} step={5} unit="ft" ticks={[30, 60, 90]} onChange={(n) => set("heightFt", n)} />
@@ -984,16 +1004,19 @@ function TreeEstimator({ project, job }: { project: Project; job: TreeJob }) {
   )
 }
 
-/** Radio-style choice cards. */
+/** Radio-style choice cards. Defaults to one column per choice — pass `columns`
+ *  when the list is long enough that a single row would shred the cards. */
 function ChoiceGroup<T extends string>({
-  choices, value, onChange,
+  choices, value, onChange, columns,
 }: {
   choices: readonly { value: T; label: string; detail: string }[]
   value: T
   onChange: (v: T) => void
+  columns?: number
 }) {
+  const cols = columns ?? choices.length
   return (
-    <div className={`grid grid-cols-1 sm:grid-cols-${choices.length} gap-2.5 max-w-2xl mx-auto`} style={{ gridTemplateColumns: `repeat(${choices.length}, minmax(0, 1fr))` }}>
+    <div className="grid grid-cols-2 gap-2.5 max-w-2xl mx-auto sm:[grid-template-columns:var(--cols)]" style={{ ["--cols" as string]: `repeat(${cols}, minmax(0, 1fr))` }}>
       {choices.map((c) => {
         const selected = value === c.value
         return (

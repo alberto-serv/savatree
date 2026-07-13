@@ -30,7 +30,7 @@ import * as SliderPrimitive from "@radix-ui/react-slider"
 import {
   ArrowRight, ArrowLeft, Check, Phone, Minus, Plus, AlertTriangle,
   Info, RefreshCw, Sparkles, ClipboardCheck, Video, MapPin,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, ShieldAlert, CalendarClock, Leaf,
 } from "lucide-react"
 import {
   getAvailableDates, isSameDay, formatVisitDate, slotsFor,
@@ -45,6 +45,7 @@ import {
   type Vertical, type TierLevel, type PlantSize, type PropertyInputs, type Project,
 } from "@/lib/savatree-catalog"
 import { estimateTreeWork, type TreeInputs, type TreeJob } from "@/lib/tree-care"
+import { CA_SPECIES, type TreeSpecies, type PermitAssessment } from "@/lib/california-trees"
 
 // ─── Flow ─────────────────────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ type ScreenId =
   | "basis"         // the program's price driver: plants, turf sq ft, beds…
   | "plantSize"     // PHC only, and the dominant cost driver
   | "organic"       // style choice, offered where the program supports it
-  | "treeSize" | "treeScope" | "treeAccess"
+  | "treeSpecies" | "treeSize" | "treeScope" | "treeAccess"
   | "stump"         // stump grinding: diameter + count
   | "plan"          // tier picker
   | "estimate"      // the range, for jobs that produce one
@@ -72,8 +73,8 @@ const PHASE_OF: Record<ScreenId, Phase> = {
   service: "Service",
   project: "Details", emergency: "Details",
   basis: "Details", plantSize: "Details", organic: "Details",
-  treeSize: "Details", treeScope: "Details", treeAccess: "Details",
-  stump: "Details",
+  treeSpecies: "Details", treeSize: "Details", treeScope: "Details",
+  treeAccess: "Details", stump: "Details",
   plan: "Estimate",
   estimate: "Estimate",
   visit: "Schedule", schedule: "Schedule",
@@ -143,7 +144,9 @@ function screensFor(vertical: Vertical | null, projectId: string | null, job: Tr
     // Nobody with a limb through their roof wants a pricing wizard.
     if (project.urgent) return [...s, "emergency"]
 
-    if (job) s.push("treeSize", "treeScope", "treeAccess", "estimate")
+    // Species leads. In California it's the input that decides whether this is a
+    // tree job or a permit application.
+    if (job) s.push("treeSpecies", "treeSize", "treeScope", "treeAccess", "estimate")
     else if (project.id === "stump_grinding") s.push("stump", "estimate")
     // Consultation projects (landscape, commercial, holiday lighting) skip the
     // estimate — an arborist scopes them, we don't — but they still book a visit.
@@ -280,6 +283,9 @@ export function EmbedWizard() {
   const canAdvance =
     screen === "service" ? Boolean(vertical)
     : screen === "project" ? Boolean(projectId)
+    // No default species. A silent "other" would quietly price a protected oak
+    // as an ordinary tree, which is the one mistake this question exists to stop.
+    : screen === "treeSpecies" ? Boolean(tree.species)
     : screen === "visit" ? Boolean(visitType)
     : screen === "schedule" ? Boolean(date && slotId)
     : screen === "contact" ? Boolean(contact.firstName && contact.lastName && contact.email && contact.phone && contact.address)
@@ -468,6 +474,20 @@ export function EmbedWizard() {
               </Screen>
             )}
 
+            {screen === "treeSpecies" && (
+              <Screen
+                title="What kind of tree is it?"
+                help="California cities protect native oaks, redwoods, and any tree big enough to be a heritage tree. Species decides whether the city has to approve this work."
+              >
+                <Choices
+                  choices={CA_SPECIES.map((s) => ({ value: s.id, label: s.label, detail: s.detail }))}
+                  value={tree.species ?? ("" as TreeSpecies)}
+                  onChange={(v) => setTreeInput("species", v)}
+                  columns={2}
+                />
+              </Screen>
+            )}
+
             {screen === "treeSize" && (
               <Screen title="How big is the tree?" help="A rough guess is fine — compare it to your house.">
                 <p className="mb-3 text-center text-[12px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Height</p>
@@ -602,6 +622,13 @@ export function EmbedWizard() {
                   eyebrow={`±${treeEstimate.spreadPct}% · An arborist confirms this on site`}
                   lines={treeEstimate.lines.map((l) => `${l.label} — ${bandText(l.band)}`)}
                 />
+                {/* In California this outranks the price. A customer who books a
+                    removal without knowing the city has to approve it — and can
+                    refuse — has been sold a problem, not a service. */}
+                {treeEstimate.permit?.isProtected && (
+                  <ProtectedTreePanel permit={treeEstimate.permit} />
+                )}
+
                 {treeEstimate.needsArboristBecause.length > 0 && (
                   <div className="mt-3 rounded-[14px] bg-white p-5">
                     <p className="eyebrow mb-2.5">Only an arborist can judge this on site</p>
@@ -615,6 +642,14 @@ export function EmbedWizard() {
                     </ul>
                   </div>
                 )}
+
+                {treeEstimate.upsell && (
+                  <p className="mt-3 flex items-start gap-2.5 rounded-[14px] bg-white p-5 text-[13px] leading-relaxed text-body">
+                    <Leaf className="mt-0.5 h-4 w-4 shrink-0 text-orange" />
+                    <span>{treeEstimate.upsell}</span>
+                  </p>
+                )}
+
                 <Disclaimer text={treeEstimate.disclaimer} />
               </Screen>
             )}
@@ -952,6 +987,46 @@ function Band({ price, eyebrow, lines }: { price: string; eyebrow: string; lines
 
 function Disclaimer({ text }: { text: string }) {
   return <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground">{text}</p>
+}
+
+/**
+ * The California panel. Deliberately loud, and deliberately placed above the
+ * "what an arborist must see" list: the permit is usually the longest pole in
+ * the job, and "the city may say no" is not a footnote.
+ */
+function ProtectedTreePanel({ permit }: { permit: PermitAssessment }) {
+  return (
+    <div className="mt-3 rounded-[14px] border-2 border-gold/50 bg-gold/10 p-5">
+      <p className="eyebrow mb-2.5 flex items-center gap-1.5 text-navy">
+        <ShieldAlert className="h-4 w-4 text-gold-deep" />
+        {permit.basis === "unidentified" ? "This tree may be protected" : "Protected tree"}
+      </p>
+
+      <ul className="space-y-2">
+        {permit.reasons.map((r) => (
+          <li key={r} className="text-[13px] leading-relaxed text-navy">{r}</li>
+        ))}
+      </ul>
+
+      {permit.weeks && (
+        <p className="mt-3.5 flex items-center gap-2 border-t border-gold/30 pt-3.5 text-[13px] font-semibold text-navy">
+          <CalendarClock className="h-4 w-4 shrink-0 text-gold-deep" />
+          {permit.weeks[0] === 0
+            ? `Expect ${permit.weeks[1]} weeks or less for city sign-off`
+            : `Expect ${permit.weeks[0]}–${permit.weeks[1]} weeks for city review`}
+          {permit.mayBeDenied && " — and it can be refused"}
+        </p>
+      )}
+
+      {/* Say who's getting the money. It isn't us. */}
+      {permit.cost && permit.cost.high > 0 && (
+        <p className="mt-2 text-[12px] leading-relaxed text-body">
+          The permit, report, and replacement planting above are the city&apos;s costs, not
+          SavATree&apos;s. We prepare the report and file the application for you.
+        </p>
+      )}
+    </div>
+  )
 }
 
 function Emergency() {

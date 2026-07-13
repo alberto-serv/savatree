@@ -30,7 +30,7 @@ import * as SliderPrimitive from "@radix-ui/react-slider"
 import {
   ArrowRight, ArrowLeft, Check, Phone, Minus, Plus, AlertTriangle,
   Info, RefreshCw, Sparkles, ClipboardCheck, Video, MapPin,
-  ChevronLeft, ChevronRight, ShieldAlert, CalendarClock, Leaf,
+  ChevronLeft, ChevronRight, ShieldAlert, CalendarClock, Leaf, ChevronDown,
 } from "lucide-react"
 import {
   getAvailableDates, isSameDay, formatVisitDate, slotsFor,
@@ -38,11 +38,12 @@ import {
 } from "@/lib/scheduling"
 import {
   getVerticalMeta, programForVertical, projectsForVertical,
-  BASIS_CONFIG, PLANT_SIZES, money, bandText, summarizeInputs,
+  BASIS_CONFIG, PLANT_SIZES, money, bandText, summarizeInputs, treatmentsBySeason,
 } from "@/lib/savatree-services"
 import {
-  quoteProgram, quoteProject, getProject, PRICING_DISCLAIMER,
+  quoteProgram, quoteProject, getProject, getAddon, PRICING_DISCLAIMER,
   type Vertical, type TierLevel, type PlantSize, type PropertyInputs, type Project,
+  type ProgramTier,
 } from "@/lib/savatree-catalog"
 import { estimateTreeWork, type TreeInputs, type TreeJob } from "@/lib/tree-care"
 import {
@@ -194,6 +195,9 @@ export function EmbedWizard() {
     job: "removal", heightFt: 40, count: 1, access: "moderate",
   })
   const [step, setStep] = useState(0)
+  // Which plan has its included-visits list open. One at a time — three expanded
+  // treatment timelines is a wall of text in a 660px card, not a comparison.
+  const [openTier, setOpenTier] = useState<TierLevel | null>(null)
   const [visitType, setVisitType] = useState<VisitType | null>(null)
   const [date, setDate] = useState<Date | null>(null)
   const [slotId, setSlotId] = useState("")
@@ -585,34 +589,17 @@ export function EmbedWizard() {
             {screen === "plan" && program && tierQuotes && (
               <Screen title="Choose your plan" help={summarizeInputs(program, inputs)}>
                 <div className="space-y-2.5">
-                  {program.tiers.map((t) => {
-                    const q = tierQuotes[t.level]
-                    const selected = tier === t.level
-                    return (
-                      <button
-                        key={t.level}
-                        onClick={() => setTier(t.level)}
-                        aria-pressed={selected}
-                        className={`w-full rounded-xl border-2 px-4 py-4 text-left transition-all duration-150 ${
-                          selected ? "border-orange bg-brand-select shadow-brand-sm" : "border-transparent bg-white hover:border-[#c7d6ca]"
-                        }`}
-                      >
-                        <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                          <span className="flex items-center gap-2">
-                            <span className="text-[16px] font-bold text-navy">{t.name}</span>
-                            {t.popular && <span className="brand-badge">Most Popular</span>}
-                          </span>
-                          <span className="text-[19px] font-extrabold tabular-nums text-navy">
-                            {bandText(q.annual)}
-                            <span className="text-[12px] font-semibold text-body">/yr</span>
-                          </span>
-                        </span>
-                        <span className="mt-1 block text-[12.5px] leading-snug text-muted-foreground">
-                          {t.visitsPerYear} visits a year · ≈ ${money(q.monthly.low)}–${money(q.monthly.high)}/mo · {t.tagline}
-                        </span>
-                      </button>
-                    )
-                  })}
+                  {program.tiers.map((t) => (
+                    <TierRow
+                      key={t.level}
+                      tier={t}
+                      quote={tierQuotes[t.level]}
+                      selected={tier === t.level}
+                      expanded={openTier === t.level}
+                      onSelect={() => setTier(t.level)}
+                      onToggle={() => setOpenTier(openTier === t.level ? null : t.level)}
+                    />
+                  ))}
                 </div>
                 {planQuote?.autoRenews && (
                   <p className="mt-4 flex items-center justify-center gap-1.5 text-[12px] font-semibold text-orange-deep">
@@ -997,6 +984,110 @@ function Band({ price, eyebrow, lines }: { price: string; eyebrow: string; lines
 
 function Disclaimer({ text }: { text: string }) {
   return <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground">{text}</p>
+}
+
+/**
+ * A plan, with its receipts.
+ *
+ * Selection and disclosure are separate controls — a customer opening "what's
+ * included" on the Premium plan has not decided to buy the Premium plan, and a
+ * card that switches their selection when they ask a question is a card that
+ * sells by accident.
+ *
+ * The expanded list is the treatment timeline: the visits that justify the
+ * price. Treatments are never buyable (see savatree-catalog.ts) — they only ever
+ * explain what the plan already contains.
+ */
+function TierRow({
+  tier, quote, selected, expanded, onSelect, onToggle,
+}: {
+  tier: ProgramTier
+  quote: ReturnType<typeof quoteProgram>
+  selected: boolean
+  expanded: boolean
+  onSelect: () => void
+  onToggle: () => void
+}) {
+  const seasons = treatmentsBySeason(tier.treatments)
+  const included = (tier.includedAddons ?? []).map(getAddon).filter(Boolean)
+
+  return (
+    <div
+      className={`rounded-xl border-2 transition-all duration-150 ${
+        selected ? "border-orange bg-brand-select shadow-brand-sm" : "border-transparent bg-white"
+      }`}
+    >
+      <button
+        onClick={onSelect}
+        aria-pressed={selected}
+        className="w-full px-4 pt-4 pb-3 text-left"
+      >
+        <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <span className="flex items-center gap-2">
+            <span className="text-[16px] font-bold text-navy">{tier.name}</span>
+            {tier.popular && <span className="brand-badge">Most Popular</span>}
+          </span>
+          <span className="text-[19px] font-extrabold tabular-nums text-navy">
+            {bandText(quote.annual)}
+            <span className="text-[12px] font-semibold text-body">/yr</span>
+          </span>
+        </span>
+        <span className="mt-1 block text-[12.5px] leading-snug text-muted-foreground">
+          {tier.visitsPerYear} visits a year · ≈ ${money(quote.monthly.low)}–${money(quote.monthly.high)}/mo · {tier.tagline}
+        </span>
+      </button>
+
+      <button
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-1 px-4 pb-3.5 text-[12px] font-bold text-orange-deep hover:underline"
+      >
+        {expanded ? "Hide the visits" : `See all ${tier.visitsPerYear} visits`}
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
+      </button>
+
+      {expanded && (
+        <div className="mx-4 mb-4 rounded-lg bg-white/70 p-4">
+          <div className="space-y-3">
+            {seasons.map((group) => (
+              <div key={group.season}>
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+                  {group.label}
+                </p>
+                <ul className="space-y-1">
+                  {group.items.map((t) => (
+                    <li key={t.name} className="flex items-start gap-2 text-[12.5px] leading-snug text-body">
+                      <Leaf className="mt-[3px] h-3 w-3 shrink-0 text-orange" />
+                      <span>
+                        {t.name}
+                        {t.note && <span className="block text-[11.5px] text-muted-foreground">{t.note}</span>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          {included.length > 0 && (
+            <div className="mt-3.5 border-t border-line pt-3">
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+                Included free
+              </p>
+              <ul className="space-y-1">
+                {included.map((a) => (
+                  <li key={a!.id} className="flex items-start gap-2 text-[12.5px] font-semibold leading-snug text-orange-deep">
+                    <Check className="mt-[3px] h-3 w-3 shrink-0" />
+                    <span>{a!.name}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 /**

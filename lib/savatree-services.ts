@@ -118,11 +118,31 @@ export function programForVertical(id: Vertical): Program | undefined {
   return PROGRAMS.find((p) => p.vertical === id)
 }
 
+/**
+ * Explicit running order for the jobs inside a vertical, most-asked-for first.
+ * Sorting by path used to lead with stump grinding purely because it was the one
+ * job with an instant quote — an implementation detail deciding the menu. Tree
+ * work is the front door, so it gets the order the business actually wants.
+ *
+ * Anything not listed keeps catalog order behind the ones that are.
+ */
+const PROJECT_ORDER: Partial<Record<Vertical, string[]>> = {
+  tree_work: ["tree_removal", "tree_pruning", "stump_grinding", "cabling_bracing"],
+}
+
 export function projectsForVertical(id: Vertical): Project[] {
-  // Instant-quotable jobs lead; urgent (storm) work sinks to the bottom of the list
-  // because it routes to dispatch, not to a quote.
+  const order = PROJECT_ORDER[id] ?? []
+  const rank = (p: Project) => {
+    const i = order.indexOf(p.id)
+    return i === -1 ? order.length : i
+  }
+
   return PROJECTS.filter((p) => p.vertical === id).sort((a, b) => {
+    // Urgent (storm) work always sinks to the bottom — it routes to dispatch,
+    // not to a quote, and it should never be the first thing a browsing
+    // customer's eye lands on.
     if (a.urgent !== b.urgent) return a.urgent ? 1 : -1
+    if (rank(a) !== rank(b)) return rank(a) - rank(b)
     if (a.path !== b.path) return a.path === "instant_quote" ? -1 : 1
     return 0
   })

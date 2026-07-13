@@ -134,9 +134,25 @@ export default function HomePage() {
         <div className="container mx-auto px-4 py-12 md:py-14">
           <div className="max-w-5xl mx-auto">
             <StepHeader step={1} title="What can we help you with?" subtitle="Pick a category and we'll build you a care plan — or scope the job." />
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-3.5">
-              {VERTICALS.map((v) => (
-                <VerticalCard key={v.id} meta={v} selected={vertical === v.id} onClick={() => selectVertical(v.id)} />
+
+            {/* Split the grid the way the business does: recurring plans, then one-off
+                work. It also squares off a 7-card grid that was leaving a ragged hole. */}
+            <div className="space-y-9">
+              {([
+                { kind: "program", label: "Year-round care plans", cols: "lg:grid-cols-4" },
+                { kind: "project", label: "Projects & one-off work", cols: "sm:grid-cols-3" },
+              ] as const).map((group) => (
+                <div key={group.kind}>
+                  <div className="flex items-center gap-3 mb-4">
+                    <p className="eyebrow shrink-0">{group.label}</p>
+                    <span className="h-px flex-1 bg-line-soft" />
+                  </div>
+                  <div className={`grid grid-cols-2 ${group.cols} gap-3 md:gap-3.5`}>
+                    {VERTICALS.filter((v) => v.kind === group.kind).map((v) => (
+                      <VerticalCard key={v.id} meta={v} selected={vertical === v.id} onClick={() => selectVertical(v.id)} />
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           </div>
@@ -431,7 +447,7 @@ function VerticalCard({ meta, selected, onClick }: { meta: VerticalMeta; selecte
       </span>
       <span className="font-bold text-navy text-[15px] leading-tight">{meta.label}</span>
       <span className="text-[12.5px] text-muted-foreground mt-1 leading-snug">{meta.blurb}</span>
-      <span className="mt-3 inline-flex items-center gap-1 text-[11px] font-bold text-orange-deep">
+      <span className="mt-auto pt-3 inline-flex items-center gap-1 text-[11px] font-bold text-orange-deep">
         {instant ? <><Sparkles className="w-3 h-3" /> Instant plan</> : <><ClipboardCheck className="w-3 h-3" /> Scoped on site</>}
       </span>
     </button>
@@ -477,7 +493,8 @@ function TierCard({
       </div>
 
       {/* Treatments are the proof, not the product — they list, they never buy. */}
-      <div className="mt-4 space-y-3 flex-1">
+      <div className="mt-5 space-y-3.5">
+        <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-navy">Your visits</p>
         {seasons.map((group) => (
           <div key={group.season}>
             <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted-foreground mb-1.5">{group.label}</p>
@@ -494,7 +511,7 @@ function TierCard({
       </div>
 
       {(tier.includedAddons ?? []).length > 0 && (
-        <div className="mt-4 pt-4 border-t border-line">
+        <div className="mt-5 pt-4 border-t border-line">
           <p className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted-foreground mb-1.5">Included free</p>
           <ul className="space-y-1">
             {(tier.includedAddons ?? []).map((id) => {
@@ -511,12 +528,18 @@ function TierCard({
         </div>
       )}
 
+      {/* mt-auto pins the CTA to the card floor so all three line up, without
+          stretching the visit list away from the price it justifies. */}
       <span
-        className={`mt-5 inline-flex items-center justify-center w-full rounded-lg py-3 text-sm font-bold transition-colors ${
-          selected ? "bg-orange text-white" : "bg-sky text-navy"
+        className={`mt-auto pt-6 inline-flex items-center justify-center w-full text-sm font-bold ${
+          selected ? "text-orange-deep" : "text-navy"
         }`}
       >
-        {selected ? <><Check className="w-4 h-4 mr-1.5" /> Selected</> : "Choose this plan"}
+        <span className={`inline-flex items-center justify-center w-full rounded-lg py-3 transition-colors ${
+          selected ? "bg-orange text-white" : "bg-sky text-navy"
+        }`}>
+          {selected ? <><Check className="w-4 h-4 mr-1.5" /> Selected</> : "Choose this plan"}
+        </span>
       </span>
     </button>
   )
@@ -559,9 +582,11 @@ function PropertyInputsPanel({
   const cfg = BASIS_CONFIG[program.priceBasis]
   const value = (inputs[cfg.key] as number | undefined) ?? cfg.default
 
+  // One panel, one centered column — the controls sit under their own headings
+  // instead of drifting to the left edge of a centered section.
   return (
-    <div className="space-y-9">
-      <div>
+    <div className="rounded-[18px] border border-line bg-white shadow-brand-sm divide-y divide-line-soft">
+      <div className="p-7 md:p-9">
         <FieldLabel label={cfg.label} help={cfg.help} />
         {cfg.kind === "sqft" ? (
           <PropertySlider value={value} min={cfg.min} max={cfg.max} step={cfg.step} onChange={(n) => setInput(cfg.key, n)} />
@@ -579,16 +604,16 @@ function PropertyInputsPanel({
 
       {/* Tree size is the dominant cost driver in PHC — a 60-ft oak is not a shrub. */}
       {program.priceBasis === "plant_count" && (
-        <div>
+        <div className="p-7 md:p-9">
           <FieldLabel label="How big are they, on average?" help="Bigger canopies take more material and more labor." />
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 max-w-2xl mx-auto">
             {PLANT_SIZES.map((size) => {
               const selected = (inputs.plantSize ?? "medium") === size.value
               return (
                 <button
                   key={size.value}
                   onClick={() => setInput("plantSize", size.value as PlantSize)}
-                  className={`rounded-xl px-4 py-3 text-left border-2 transition-all ${
+                  className={`rounded-xl px-4 py-3 text-center border-2 transition-all ${
                     selected ? "border-orange bg-brand-select" : "border-line bg-white hover:border-[#c7d6ca]"
                   }`}
                 >
@@ -603,22 +628,25 @@ function PropertyInputsPanel({
 
       {/* Organic is a style choice, not a better tier. Never present it as an upgrade. */}
       {program.organicModifier && (
-        <button
-          onClick={() => setInput("organic", !inputs.organic)}
-          className={`flex w-full items-start gap-3 rounded-xl p-4 border-2 text-left transition-all ${
-            inputs.organic ? "border-orange bg-brand-select" : "border-line bg-white hover:border-[#c7d6ca]"
-          }`}
-        >
-          <span className={`flex h-6 w-6 items-center justify-center rounded-md border-2 shrink-0 mt-0.5 ${inputs.organic ? "border-orange bg-orange text-white" : "border-line bg-white"}`}>
-            {inputs.organic ? <Check className="h-4 w-4" /> : null}
-          </span>
-          <span>
-            <span className="block font-semibold text-navy text-[15px]">Make it an organic program</span>
-            <span className="block text-[13px] text-muted-foreground mt-0.5">
-              Natural-input treatments at any plan level (+{Math.round((program.organicModifier - 1) * 100)}%). A style choice — not a better plan.
+        <div className="p-7 md:p-9">
+          <button
+            onClick={() => setInput("organic", !inputs.organic)}
+            aria-pressed={!!inputs.organic}
+            className={`flex w-full max-w-2xl mx-auto items-start gap-3 rounded-xl p-4 border-2 text-left transition-all ${
+              inputs.organic ? "border-orange bg-brand-select" : "border-line bg-white hover:border-[#c7d6ca]"
+            }`}
+          >
+            <span className={`flex h-6 w-6 items-center justify-center rounded-md border-2 shrink-0 mt-0.5 ${inputs.organic ? "border-orange bg-orange text-white" : "border-line bg-white"}`}>
+              {inputs.organic ? <Check className="h-4 w-4" /> : null}
             </span>
-          </span>
-        </button>
+            <span>
+              <span className="block font-semibold text-navy text-[15px]">Make it an organic program</span>
+              <span className="block text-[13px] text-muted-foreground mt-0.5">
+                Natural-input treatments at any plan level (+{Math.round((program.organicModifier - 1) * 100)}%). A style choice — not a better plan.
+              </span>
+            </span>
+          </button>
+        </div>
       )}
     </div>
   )
@@ -763,7 +791,7 @@ function priceAddonRow(addonId: string, inputs: PropertyInputs) {
 
 function FieldLabel({ label, help }: { label: string; help?: string }) {
   return (
-    <div className="mb-3.5">
+    <div className="mb-6 text-center">
       <p className="font-bold text-navy text-[17px]">{label}</p>
       {help && <p className="text-[13px] text-muted-foreground mt-1">{help}</p>}
     </div>
@@ -775,26 +803,26 @@ function NumberStepper({
 }: { value: number; unit?: string; min: number; max: number; presets: number[]; onChange: (n: number) => void }) {
   const clamp = (n: number) => Math.min(max, Math.max(min, n))
   return (
-    <div className="max-w-md">
-      <div className="flex items-center gap-5">
+    <div className="max-w-md mx-auto">
+      <div className="flex items-center justify-center gap-5">
         <button type="button" onClick={() => onChange(clamp(value - 1))} disabled={value <= min} aria-label="Decrease"
-          className="flex items-center justify-center w-12 h-12 rounded-lg border border-border text-navy hover:border-orange/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+          className="flex items-center justify-center w-12 h-12 shrink-0 rounded-lg border border-border text-navy hover:border-orange/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
           <Minus className="w-5 h-5" />
         </button>
         <div className="flex flex-col items-center w-40">
-          <span className="text-4xl font-extrabold text-navy tabular-nums">{value}</span>
-          {unit && <span className="text-sm text-muted-foreground text-center">{unit}</span>}
+          <span className="text-[44px] leading-none font-extrabold text-navy tabular-nums">{value}</span>
+          {unit && <span className="text-sm text-muted-foreground text-center mt-1.5">{unit}</span>}
         </div>
         <button type="button" onClick={() => onChange(clamp(value + 1))} disabled={value >= max} aria-label="Increase"
-          className="flex items-center justify-center w-12 h-12 rounded-lg border border-border text-navy hover:border-orange/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+          className="flex items-center justify-center w-12 h-12 shrink-0 rounded-lg border border-border text-navy hover:border-orange/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
           <Plus className="w-5 h-5" />
         </button>
       </div>
       {presets.length > 0 && (
-        <div className="flex gap-2 mt-5">
+        <div className="flex justify-center gap-2 mt-6">
           {presets.map((p) => (
             <button key={p} type="button" onClick={() => onChange(p)}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+              className={`w-12 py-2 rounded-lg text-sm font-semibold border transition-colors ${
                 value === p ? "bg-orange/10 border-orange text-orange-deep" : "bg-white border-border text-navy hover:border-orange/40"
               }`}>
               {p}
@@ -814,8 +842,8 @@ function PropertySlider({
   const tickPct = (n: number) => ((n - min) / (max - min)) * 100
 
   return (
-    <div className="max-w-xl">
-      <div className="flex items-baseline gap-2">
+    <div className="max-w-xl mx-auto">
+      <div className="flex items-baseline justify-center gap-2">
         <input
           type="text"
           inputMode="numeric"
@@ -826,7 +854,7 @@ function PropertySlider({
           }}
           onBlur={() => { if (!value || value < min) onChange(min) }}
           aria-label="Property size in square feet"
-          className="w-44 bg-transparent border-b-2 border-line text-3xl font-extrabold text-navy tabular-nums focus:border-orange focus:outline-none transition-colors"
+          className="w-44 bg-transparent border-b-2 border-line text-center text-[34px] font-extrabold text-navy tabular-nums focus:border-orange focus:outline-none transition-colors"
         />
         <span className="text-sm font-semibold text-muted-foreground">sq ft</span>
       </div>

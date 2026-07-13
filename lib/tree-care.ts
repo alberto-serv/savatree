@@ -83,6 +83,8 @@ export interface TreeEstimate {
   upsell: string | null;
   lines: { label: string; band: PriceBand }[];
   disclaimer: string;
+  /** True when the branch's truck-roll minimum lifted the price. */
+  minimumApplied: boolean;
   /** Present only when a species was supplied. See california-trees.ts. */
   permit?: PermitAssessment;
 }
@@ -101,19 +103,62 @@ interface Factor {
 // Constants
 // ─────────────────────────────────────────────────────────────────
 
-/** Base $/tree by height. Removal is the reference job. */
-const HEIGHT_BANDS: { maxFt: number; band: PriceBand }[] = [
-  { maxFt: 30, band: { low: 400, high: 850 } },
-  { maxFt: 60, band: { low: 850, high: 1900 } },
-  { maxFt: 80, band: { low: 1900, high: 3300 } },
-  { maxFt: Infinity, band: { low: 3000, high: 5500 } },
-];
+/**
+ * ⚠️ THE RATE CARD IS A PARAMETER, NOT A CONSTANT.
+ *
+ * Everything below is what a tree job costs, and what a tree job costs is a
+ * branch's business. A branch with a crane and a chipper truck does not price a
+ * 70-foot removal like a branch that subs the crane in; a branch whose climbers
+ * are booked six weeks out does not price pruning like one that isn't.
+ *
+ * So these ship as DEFAULT_TREE_RATES — the national benchmark figures the
+ * calibration anchors in tree-care.test.ts are built on — and the branch manager
+ * overrides them in /config. Pass nothing and you get corporate, unchanged.
+ *
+ * NOTE: no Infinity in here. This round-trips through JSON.stringify into a
+ * branch's localStorage, and JSON turns Infinity into null — which would silently
+ * delete the tallest price band. The top band is bounded by a number no tree will
+ * ever reach instead.
+ */
+export interface TreeRateCard {
+  /** Base $/tree by height. Removal is the reference job; every other job is a fraction of it. */
+  heightBands: { maxFt: number; band: PriceBand }[];
+  /** Each job as a fraction of the removal base. */
+  jobFactor: Record<TreeJob, number>;
+  stump: {
+    perInch: PriceBand;
+    minCharge: number;
+    additionalStump: PriceBand;
+  };
+  /**
+   * The truck-roll floor. A crew, a chipper, and a two-hour round trip cost the
+   * same whether the tree is 12 feet or 30, and a branch that quotes below this
+   * is paying for the privilege of doing the work. 0 = no floor.
+   */
+  minimumJobCharge: number;
+  /** Above this height, nothing books a crew directly — it books an arborist. */
+  directBookMaxHeightFt: number;
+}
 
-/** Each job as a fraction of the removal base. */
-const JOB_FACTOR: Record<TreeJob, number> = {
-  removal: 1.0,
-  pruning: 0.42,
-  cabling: 0.35,
+export const DEFAULT_TREE_RATES: TreeRateCard = {
+  heightBands: [
+    { maxFt: 30, band: { low: 400, high: 850 } },
+    { maxFt: 60, band: { low: 850, high: 1900 } },
+    { maxFt: 80, band: { low: 1900, high: 3300 } },
+    { maxFt: 999, band: { low: 3000, high: 5500 } },
+  ],
+  jobFactor: {
+    removal: 1.0,
+    pruning: 0.42,
+    cabling: 0.35,
+  },
+  stump: {
+    perInch: { low: 4, high: 7 },
+    minCharge: 160,
+    additionalStump: { low: 40, high: 70 },
+  },
+  minimumJobCharge: 0,
+  directBookMaxHeightFt: 30,
 };
 
 const ACCESS: Record<NonNullable<TreeInputs["access"]>, Factor> = {
@@ -165,13 +210,6 @@ const SPREAD_WEIGHT = 0.4;
 /** Any factor at or above this must be seen in person. */
 const ARBORIST_THRESHOLD = 0.2;
 
-/** Stump grinding. Attaches to removals only. */
-const STUMP = {
-  perInch: { low: 4, high: 7 },
-  minCharge: 160,
-  additionalStump: { low: 40, high: 70 },
-};
-
 /**
  * Direct booking skips the arborist visit — and the visit is the cross-sell
  * engine. SavATree may want this off entirely, so it's a flag, not a constant
@@ -192,8 +230,8 @@ export const DISCLAIMER_ASSESSMENT =
 const round = (n: number): number => Math.round(n);
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 
-function baseForHeight(heightFt: number): PriceBand {
-  return (HEIGHT_BANDS.find((b) => heightFt <= b.maxFt) ?? HEIGHT_BANDS[HEIGHT_BANDS.length - 1]).band;
+function baseForHeight(heightFt: number, bands: TreeRateCard["heightBands"]): PriceBand {
+  return (bands.find((b) => heightFt <= b.maxFt) ?? bands[bands.length - 1]).band;
 }
 
 /** Rule of thumb: a tree's DBH in inches runs about a third of its height in feet. */
@@ -207,15 +245,25 @@ const JOB_LABEL: Record<TreeJob, string> = {
   cabling: "Cabling & bracing",
 };
 
-function priceStumpGrinding(diameterInches: number, count: number): PriceBand {
+/**
+ * Stump grinding, at the branch's own rates. Exported because the stump-grinding
+ * PROJECT is the same work as the stump-grinding ADD-ON to a removal — pricing
+ * them from two different tables is how the same customer gets two different
+ * numbers for the same stump.
+ */
+export function priceStumpGrinding(
+  diameterInches: number,
+  count: number,
+  stump: TreeRateCard["stump"] = DEFAULT_TREE_RATES.stump,
+): PriceBand {
   const first: PriceBand = {
-    low: Math.max(STUMP.minCharge, diameterInches * STUMP.perInch.low),
-    high: Math.max(STUMP.minCharge, diameterInches * STUMP.perInch.high),
+    low: Math.max(stump.minCharge, diameterInches * stump.perInch.low),
+    high: Math.max(stump.minCharge, diameterInches * stump.perInch.high),
   };
   const extra = Math.max(0, count - 1);
   return {
-    low: first.low + extra * STUMP.additionalStump.low,
-    high: first.high + extra * STUMP.additionalStump.high,
+    low: first.low + extra * stump.additionalStump.low,
+    high: first.high + extra * stump.additionalStump.high,
   };
 }
 
@@ -238,11 +286,14 @@ export interface EstimateOptions {
   rateIndex?: number;
   /** The city's tree ordinance. Defaults to the conservative California pattern. */
   permitPolicy?: PermitPolicy;
+  /** The branch's tree rate card. Defaults to the corporate benchmark figures. */
+  rates?: TreeRateCard;
 }
 
 export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): TreeEstimate {
   if (!(i.heightFt > 0)) throw new Error("heightFt must be a positive number");
   const rateIndex = opts.rateIndex ?? 1;
+  const rates = opts.rates ?? DEFAULT_TREE_RATES;
 
   const count = Math.max(1, Math.floor(i.count ?? 1));
   const access = ACCESS[i.access ?? "moderate"];
@@ -250,8 +301,8 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
   const condition = CONDITION[i.condition ?? "healthy"];
   const lean = LEAN[i.lean ?? "none"];
 
-  // 1. Base for the height band.
-  const base = baseForHeight(i.heightFt);
+  // 1. Base for the height band, at the branch's rates.
+  const base = baseForHeight(i.heightFt, rates.heightBands);
 
   // 2. Diameter refinement — a thick-for-height tree is simply more wood.
   //    Clamped, because DBH is a correction, not a second pricing axis.
@@ -268,7 +319,7 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
 
   // 5. Derive the band from the base's OWN endpoints. Widening a midpoint would
   //    double-count risk: the base band already encodes ordinary variation.
-  const jobFactor = JOB_FACTOR[i.job];
+  const jobFactor = rates.jobFactor[i.job];
   const perTreeLow = base.low * dbhAdj * jobFactor * mult * rateIndex * (1 - uncertainty * SPREAD_WEIGHT);
   const perTreeHigh = base.high * dbhAdj * jobFactor * mult * rateIndex * (1 + uncertainty * SPREAD_WEIGHT);
 
@@ -276,9 +327,18 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
   const mid = (perTreeLow + perTreeHigh) / 2;
   const spreadPct = round(((perTreeHigh - mid) / mid) * 100);
 
-  // 7. Scale by count; stump grinding is its own line, removals only.
+  // 7. Scale by count, then apply the branch's truck-roll floor. The floor lifts
+  //    the LINE, not just the total — an itemization that sums to less than the
+  //    number above it is how a customer decides you're padding the bill.
   const lines: { label: string; band: PriceBand }[] = [];
-  const treeWork: PriceBand = { low: perTreeLow * count, high: perTreeHigh * count };
+  const raw: PriceBand = { low: perTreeLow * count, high: perTreeHigh * count };
+  const floor = rates.minimumJobCharge;
+  const minimumApplied = floor > raw.low + 1e-9;
+  const treeWork: PriceBand = {
+    low: Math.max(floor, raw.low),
+    high: Math.max(floor, raw.high),
+  };
+
   lines.push({
     label: `${JOB_LABEL[i.job]} — ${count} tree${count === 1 ? "" : "s"}, ${i.heightFt} ft`,
     band: { low: round(treeWork.low), high: round(treeWork.high) },
@@ -290,8 +350,8 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
 
   if (i.addStumpGrinding && i.job === "removal") {
     // Grinding is labor too — it moves with the branch's rate index.
-    const raw = priceStumpGrinding(dbh, count);
-    const stump = { low: raw.low * rateIndex, high: raw.high * rateIndex };
+    const rawStump = priceStumpGrinding(dbh, count, rates.stump);
+    const stump = { low: rawStump.low * rateIndex, high: rawStump.high * rateIndex };
     total = { low: total.low + stump.low, high: total.high + stump.high };
     lines.push({
       label: `Stump grinding — ${dbh}" diameter${count > 1 ? ` × ${count}` : ""}`,
@@ -323,6 +383,11 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
   // 9. Say out loud why the band is the width it is.
   const factors = [
     ...[access, proximity, condition, lean].map((f) => f.note).filter((n): n is string => n !== null),
+    // Say it out loud rather than letting a suspiciously round number sit there
+    // unexplained. A crew and a chipper cost the same for a small tree.
+    ...(minimumApplied
+      ? [`Our minimum for a tree job is $${round(floor)} — a crew and a truck cost the same for a small tree.`]
+      : []),
     ...(permit?.reasons ?? []),
   ];
 
@@ -355,7 +420,7 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
   const bookable =
     allowDirectBooking &&
     confidence === "high" &&
-    i.heightFt <= 30 &&
+    i.heightFt <= rates.directBookMaxHeightFt &&
     (i.condition ?? "healthy") === "healthy" &&
     !(permit?.isProtected && permit.cost !== null);
   const nextStep: NextStep = bookable ? "book_job" : "book_assessment";
@@ -376,6 +441,7 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
     needsArboristBecause,
     upsell: protectionAdvice ?? upsellFor(i),
     lines,
+    minimumApplied,
     disclaimer:
       (nextStep === "book_job" ? DISCLAIMER_BOOKABLE : DISCLAIMER_ASSESSMENT) +
       (permit?.isProtected ? ` ${CA_ORDINANCE_DISCLAIMER}` : ""),

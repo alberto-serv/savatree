@@ -18,7 +18,7 @@ import {
   enabledServices, enabledTreeJobs, treeOptions,
 } from "./branch-config";
 import { PROGRAMS, quoteProgram, getProgram } from "./savatree-catalog";
-import { estimateTreeWork } from "./tree-care";
+import { estimateTreeWork, priceStumpGrinding } from "./tree-care";
 
 const phc = getProgram("phc_program")!;
 
@@ -103,6 +103,90 @@ test("San Jose's labor index moves tree work — and never the city's fees", () 
     permitLine(pricey),
     "the city's filing fee moved with our labor index — it must not",
   );
+});
+
+test("the branch's tree rate card reaches the customer's estimate", () => {
+  const cfg = defaultConfig();
+  const tree = { job: "removal" as const, heightFt: 70, diameterInches: 23, access: "moderate" as const };
+
+  const before = estimateTreeWork(tree, treeOptions(cfg));
+
+  // A manager who's learned his 60–80 ft removals lose money moves ONE band…
+  const band = cfg.tree.rates.heightBands.find((b) => b.maxFt === 80)!;
+  band.band.low = 2600;
+  band.band.high = 4400;
+  const after = estimateTreeWork(tree, treeOptions(cfg));
+  assert.ok(after.estimate.low > before.estimate.low, "the band edit must reach the customer");
+
+  // …and a 40 ft tree, which sits in a different band, must not have moved.
+  const other = { ...tree, heightFt: 40, diameterInches: 13 };
+  assert.deepEqual(
+    estimateTreeWork(other, treeOptions(cfg)).estimate,
+    estimateTreeWork(other, treeOptions(defaultConfig())).estimate,
+    "editing one height band moved a tree in another band",
+  );
+});
+
+test("the truck-roll minimum floors small jobs — and says so", () => {
+  const cfg = defaultConfig();
+  assert.ok(cfg.tree.rates.minimumJobCharge > 0, "San Jose ships with a floor");
+
+  // A small PRUNING job is where a floor actually bites. At San Jose rates even a
+  // 12 ft removal already prices around $800, so a floor set below that would be
+  // decoration — the cheap jobs are the light ones, not the short ones.
+  const ornamental = { job: "pruning" as const, heightFt: 12, diameterInches: 5, access: "open" as const };
+  const q = estimateTreeWork(ornamental, treeOptions(cfg));
+
+  assert.equal(q.minimumApplied, true);
+  assert.equal(q.estimate.low, cfg.tree.rates.minimumJobCharge, "a tiny tree is quoted at the floor");
+  assert.ok(
+    q.factors.some((f) => /minimum for a tree job/i.test(f)),
+    "a floored price must explain itself, not just be a suspiciously round number",
+  );
+
+  // The itemization must agree with the total. A line that sums to less than the
+  // headline number reads as padding.
+  assert.equal(q.lines[0].band.low, q.estimate.low);
+
+  // No floor → no claim.
+  cfg.tree.rates.minimumJobCharge = 0;
+  const unfloored = estimateTreeWork(ornamental, treeOptions(cfg));
+  assert.equal(unfloored.minimumApplied, false);
+  assert.ok(unfloored.estimate.low < q.estimate.low);
+});
+
+test("pruning and cabling are priced off the removal base", () => {
+  const cfg = defaultConfig();
+  const shape = { heightFt: 40, diameterInches: 14, access: "moderate" as const };
+
+  const removal = estimateTreeWork({ job: "removal", ...shape }, treeOptions(cfg));
+  cfg.tree.rates.jobFactor.pruning = 0.8; // a branch that's slow on climbs
+  const pruning = estimateTreeWork({ job: "pruning", ...shape }, treeOptions(cfg));
+
+  assert.ok(
+    Math.abs(pruning.estimate.high - removal.estimate.high * 0.8) <= 2,
+    "pruning must track the removal base by its factor",
+  );
+});
+
+test("one stump, one rate card — the job and the add-on can't disagree", () => {
+  const cfg = defaultConfig();
+  cfg.tree.rates.stump.perInch = { low: 9, high: 14 };
+  cfg.tree.rates.stump.minCharge = 250;
+
+  // As the add-on to a removal.
+  const withStump = estimateTreeWork(
+    { job: "removal", heightFt: 40, diameterInches: 20, addStumpGrinding: true },
+    treeOptions(cfg),
+  );
+  const line = withStump.lines.find((l) => /Stump grinding/.test(l.label))!;
+
+  // As the standalone job, priced straight from the rate card.
+  const standalone = priceStumpGrinding(20, 1, cfg.tree.rates.stump);
+  const k = cfg.tree.rateIndex;
+
+  assert.equal(line.band.low, Math.round(standalone.low * k), "same stump, same number");
+  assert.equal(line.band.high, Math.round(standalone.high * k));
 });
 
 test("the branch's ordinance reaches the customer's estimate", () => {

@@ -41,11 +41,11 @@ import {
   BASIS_CONFIG, PLANT_SIZES, money, bandText, summarizeInputs, treatmentsBySeason,
 } from "@/lib/savatree-services"
 import {
-  quoteProgram, quoteProject, getProject, getAddon, PRICING_DISCLAIMER,
+  quoteProgram, getProject, getAddon, PRICING_DISCLAIMER,
   type Vertical, type TierLevel, type PlantSize, type PropertyInputs, type Project,
   type ProgramTier,
 } from "@/lib/savatree-catalog"
-import { estimateTreeWork, type TreeInputs, type TreeJob } from "@/lib/tree-care"
+import { estimateTreeWork, priceStumpGrinding, type TreeInputs, type TreeJob } from "@/lib/tree-care"
 import {
   CA_SPECIES, speciesAdvisory,
   type TreeSpecies, type PermitAssessment, type SpeciesAdvisory,
@@ -274,17 +274,25 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
     [job, tree, treeOpts],
   )
 
-  // Grinding is labor, so it moves with the branch's rate index like the rest of
-  // the tree work does.
+  // Grinding a stump on its own is the same work as grinding it after a removal,
+  // so it's priced from the same rate card — not from the catalog's project table.
+  // Two tables for one stump is how the same customer gets two different numbers.
   const stumpQuote = useMemo(() => {
     if (project?.id !== "stump_grinding") return null
-    const q = quoteProject(project.id, inputs)
+    const inches = inputs.stumpDiameterInches ?? 14
+    const count = inputs.stumpCount ?? 1
+    const raw = priceStumpGrinding(inches, count, cfg.tree.rates.stump)
     const k = cfg.tree.rateIndex
+    const { stump } = cfg.tree.rates
     return {
-      ...q,
-      estimate: { low: Math.round(q.estimate.low * k), high: Math.round(q.estimate.high * k) },
+      estimate: { low: Math.round(raw.low * k), high: Math.round(raw.high * k) },
+      lines: [
+        `${inches}" stump @ $${stump.perInch.low}–$${stump.perInch.high}/inch (min $${stump.minCharge})`,
+        ...(count > 1 ? [`${count - 1} additional stump(s)`] : []),
+      ],
+      disclaimer: PRICING_DISCLAIMER,
     }
-  }, [project, inputs, cfg.tree.rateIndex])
+  }, [project, inputs, cfg.tree])
 
   // Available before there's a size, and therefore before there's a price.
   const speciesNotice =
@@ -684,7 +692,14 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
                 <Band
                   price={bandText(treeEstimate.estimate)}
                   eyebrow={`±${treeEstimate.spreadPct}% · An arborist confirms this on site`}
-                  lines={treeEstimate.lines.map((l) => `${l.label} — ${bandText(l.band)}`)}
+                  lines={[
+                    ...treeEstimate.lines.map((l) => `${l.label} — ${bandText(l.band)}`),
+                    // A floored price is a suspiciously round number unless you say
+                    // why it's round. The model already wrote the sentence.
+                    ...(treeEstimate.minimumApplied
+                      ? treeEstimate.factors.filter((f) => /minimum for a tree job/i.test(f))
+                      : []),
+                  ]}
                 />
                 {/* In California this outranks the price. A customer who books a
                     removal without knowing the city has to approve it — and can

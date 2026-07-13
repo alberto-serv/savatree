@@ -195,12 +195,15 @@ function EditPane({ store, onPreview }: { store: BranchStore; onPreview: () => v
         </p>
       </div>
 
+      {/* Ordered the way the branch thinks: what we sell, then tree care (the lead
+          service, and the one with a rate card), then the city's rules that govern
+          it, then plans — with add-ons directly beneath the plans they attach to. */}
       <div className="space-y-5">
         <IdentitySection store={store} />
         <ServicesSection store={store} />
-        <ProgramsSection store={store} />
         <TreeSection store={store} />
         <OrdinanceSection store={store} />
+        <ProgramsSection store={store} />
         <AddonsSection store={store} />
       </div>
 
@@ -486,39 +489,91 @@ function ProgramCard({ program, store }: { program: Program; store: BranchStore 
 
 // ─── Tree care ────────────────────────────────────────────────────────────────
 
+/** A quote the manager can recognise, recomputed from whatever they just typed. */
+function useTreeSamples(store: BranchStore) {
+  return useMemo(() => {
+    const opts = treeOptions(store.cfg)
+    const shape = { diameterInches: 14, count: 1, access: "moderate" as const }
+    const at = (job: "removal" | "pruning" | "cabling", heightFt: number, extra = {}) =>
+      estimateTreeWork({ job, heightFt, ...shape, ...extra }, opts)
+
+    return {
+      national: estimateTreeWork(
+        { job: "removal", heightFt: 40, ...shape },
+        { ...opts, rateIndex: 1 },
+      ),
+      removal: at("removal", 40),
+      pruning: at("pruning", 40),
+      cabling: at("cabling", 40),
+      // The floor bites on light jobs, not short ones — a small prune, not a
+      // small takedown. Show the manager the case their floor actually catches.
+      small: at("pruning", 15, { diameterInches: 6, access: "open" as const }),
+      stump: at("removal", 40, { addStumpGrinding: true }),
+    }
+  }, [store.cfg])
+}
+
 function TreeSection({ store }: { store: BranchStore }) {
   const { tree } = store.cfg
+  const rates = tree.rates
   // In the order the customer meets them, not catalog order — a manager toggling
   // jobs should be looking at their own booking page.
   const jobs = projectsForVertical("tree_work").filter((p) => !p.urgent)
+  const s = useTreeSamples(store)
 
-  // The index in the only terms that matter: what it does to a real removal.
-  const sample = useMemo(() => {
-    const opts = treeOptions(store.cfg)
-    const base = estimateTreeWork(
-      { job: "removal", heightFt: 40, diameterInches: 14, count: 1, access: "moderate" },
-      { ...opts, rateIndex: 1 },
-    )
-    const branch = estimateTreeWork(
-      { job: "removal", heightFt: 40, diameterInches: 14, count: 1, access: "moderate" },
-      opts,
-    )
-    return { base, branch }
-  }, [store.cfg])
+  const bandLabel = (i: number) => {
+    const lo = i === 0 ? 0 : rates.heightBands[i - 1].maxFt
+    const hi = rates.heightBands[i].maxFt
+    return hi >= 999 ? `${lo} ft and up` : `${lo}–${hi} ft`
+  }
 
   return (
     <Section
       title="Tree care"
-      blurb="Your labor market, and which tree jobs your crews take."
+      blurb="Your rate card, your market, and which jobs your crews take."
       icon={TreePine}
+      defaultOpen
     >
-      <div className="rounded-xl border border-line bg-white p-4">
+      {/* ── 1. What a tree costs, by height. The actual rate card. ── */}
+      <p className="mb-1 text-[12px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+        What a removal costs, by tree height
+      </p>
+      <p className="mb-3 text-[12.5px] leading-snug text-muted-foreground">
+        Removal is the reference job — pruning and cabling are priced as a fraction of it below. These are
+        per tree, before access, condition, and your market index.
+      </p>
+      <div className="space-y-2">
+        {rates.heightBands.map((b, i) => (
+          <div key={i} className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-white px-4 py-3">
+            <span className="w-24 shrink-0 text-[13.5px] font-bold text-navy">{bandLabel(i)}</span>
+            <div className="flex flex-1 items-center gap-2">
+              <Money
+                label="Low"
+                aria={`${bandLabel(i)} removal, low`}
+                value={b.band.low}
+                step={25}
+                onChange={(n) => store.setHeightBand(i, { low: n })}
+              />
+              <Money
+                label="High"
+                aria={`${bandLabel(i)} removal, high`}
+                value={b.band.high}
+                step={25}
+                onChange={(n) => store.setHeightBand(i, { high: n })}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── 2. The market index. One number for "we're a Bay Area crew." ── */}
+      <div className="mt-5 rounded-xl border border-line bg-white p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-[14px] font-bold text-navy">Branch labor index</p>
+            <p className="text-[14px] font-bold text-navy">Market index</p>
             <p className="mt-0.5 max-w-[46ch] text-[12.5px] leading-snug text-muted-foreground">
-              Our tree rates are national benchmarks. A Bay Area crew-hour isn&apos;t an Ohio crew-hour —
-              this scales every tree band to your market. Tune it against jobs you&apos;ve actually closed.
+              Scales every band above at once. The rates ship as national benchmarks and a Bay Area
+              crew-hour isn&apos;t an Ohio crew-hour. Tune it against jobs you&apos;ve actually closed.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -535,16 +590,133 @@ function TreeSection({ store }: { store: BranchStore }) {
             <span className="text-[13px] font-semibold text-muted-foreground">×</span>
           </div>
         </div>
-
         <div className="mt-4 rounded-lg bg-brand-band p-3.5 text-[12.5px] text-body">
           A typical 40 ft removal, 14&quot; trunk, moderate access:{" "}
-          <span className="line-through opacity-50">{bandText(sample.base.estimate)}</span>{" "}
-          <strong className="text-navy">{bandText(sample.branch.estimate)}</strong>{" "}
-          <span className="text-muted-foreground">at your index</span>
+          <span className="line-through opacity-50">{bandText(s.national.estimate)}</span>{" "}
+          <strong className="text-navy">{bandText(s.removal.estimate)}</strong>{" "}
+          <span className="text-muted-foreground">at your rates</span>
         </div>
       </div>
 
-      <div className="mt-4 space-y-2">
+      {/* ── 3. The truck-roll floor. ── */}
+      <div className="mt-4 rounded-xl border border-line bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[14px] font-bold text-navy">Minimum for any tree job</p>
+            <p className="mt-0.5 max-w-[46ch] text-[12.5px] leading-snug text-muted-foreground">
+              A crew, a chipper, and the drive cost the same whether the tree is twelve feet or thirty.
+              Below this, you&apos;re paying for the privilege of doing the work. Set 0 for no floor.
+            </p>
+          </div>
+          <Money
+            label="Floor"
+            aria="Minimum charge for any tree job"
+            value={rates.minimumJobCharge}
+            step={25}
+            onChange={(n) => store.setTreeRates({ minimumJobCharge: n })}
+          />
+        </div>
+        <div className="mt-4 rounded-lg bg-brand-band p-3.5 text-[12.5px] text-body">
+          Pruning a 15 ft ornamental:{" "}
+          <strong className="text-navy">{bandText(s.small.estimate)}</strong>
+          {s.small.minimumApplied && (
+            <span className="ml-2 rounded bg-gold/25 px-1.5 py-0.5 text-[10px] font-bold uppercase text-navy">
+              at your floor
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ── 4. Pruning and cabling, as a share of removal. ── */}
+      <div className="mt-4 rounded-xl border border-line bg-white p-4">
+        <p className="text-[14px] font-bold text-navy">Pruning &amp; cabling, as a share of removal</p>
+        <p className="mt-0.5 mb-3 text-[12.5px] leading-snug text-muted-foreground">
+          A crew that&apos;s slow on takedowns but fast on climbs prices these differently. Same 40 ft tree.
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {([
+            { job: "pruning" as const, label: "Pruning", sample: s.pruning },
+            { job: "cabling" as const, label: "Cabling & bracing", sample: s.cabling },
+          ]).map((row) => (
+            <div key={row.job} className="rounded-lg border border-line-soft bg-[#FCFDFC] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[13.5px] font-bold text-navy">{row.label}</span>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={5}
+                    max={150}
+                    step={1}
+                    aria-label={`${row.label} as a percentage of removal`}
+                    value={Math.round(rates.jobFactor[row.job] * 100)}
+                    onChange={(e) =>
+                      store.setTreeRates({
+                        jobFactor: {
+                          ...rates.jobFactor,
+                          [row.job]: Math.max(0.05, (Number(e.target.value) || 0) / 100),
+                        },
+                      })
+                    }
+                    className="w-16 rounded-lg border border-line px-2 py-1.5 text-right text-[13.5px] font-bold tabular-nums text-navy focus:border-orange focus:outline-none"
+                  />
+                  <span className="text-[12px] font-semibold text-muted-foreground">%</span>
+                </div>
+              </div>
+              <p className="mt-2 text-[12px] text-muted-foreground">
+                → <strong className="text-navy tabular-nums">{bandText(row.sample.estimate)}</strong>
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── 5. Stump grinding. One rate card, whether it's its own job or an add-on. ── */}
+      <div className="mt-4 rounded-xl border border-line bg-white p-4">
+        <p className="text-[14px] font-bold text-navy">Stump grinding</p>
+        <p className="mt-0.5 mb-3 text-[12.5px] leading-snug text-muted-foreground">
+          Priced by trunk diameter. Used both as its own job and as the add-on to a removal — one rate
+          card, so the same stump never gets two different numbers.
+        </p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Money
+            label="Per inch, low"
+            value={rates.stump.perInch.low}
+            step={1}
+            onChange={(n) => store.setTreeRates({ stump: { ...rates.stump, perInch: { ...rates.stump.perInch, low: n } } })}
+          />
+          <Money
+            label="Per inch, high"
+            value={rates.stump.perInch.high}
+            step={1}
+            onChange={(n) => store.setTreeRates({ stump: { ...rates.stump, perInch: { ...rates.stump.perInch, high: n } } })}
+          />
+          <Money
+            label="Minimum"
+            value={rates.stump.minCharge}
+            step={10}
+            onChange={(n) => store.setTreeRates({ stump: { ...rates.stump, minCharge: n } })}
+          />
+          <Money
+            label="Each extra"
+            value={rates.stump.additionalStump.low}
+            step={5}
+            onChange={(n) =>
+              store.setTreeRates({
+                stump: {
+                  ...rates.stump,
+                  additionalStump: { low: n, high: Math.max(n, rates.stump.additionalStump.high) },
+                },
+              })
+            }
+          />
+        </div>
+      </div>
+
+      {/* ── 6. What the crews take. ── */}
+      <p className="mb-2 mt-6 text-[12px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+        Jobs your crews take
+      </p>
+      <div className="space-y-2">
         {jobs.map((j) => (
           <div key={j.id} className="flex items-center gap-3 rounded-xl border border-line bg-white px-4 py-3">
             <span className="flex-1 text-[14px] font-semibold text-navy">{j.name}</span>
@@ -557,19 +729,44 @@ function TreeSection({ store }: { store: BranchStore }) {
         </div>
       </div>
 
-      <div className="mt-4 flex items-start gap-3 rounded-xl border border-line bg-white px-4 py-3.5">
-        <span className="flex-1">
-          <span className="block text-[14px] font-semibold text-navy">Let small, clean jobs book a crew directly</span>
-          <span className="mt-0.5 block text-[12.5px] leading-snug text-muted-foreground">
-            Off, every tree job books a free arborist assessment instead — which is where the cross-sell
-            happens, and the only way to catch a protected tree before a crew is on the calendar.
+      {/* ── 7. Who gets a crew, and who gets an arborist. ── */}
+      <div className="mt-4 rounded-xl border border-line bg-white px-4 py-3.5">
+        <div className="flex items-start gap-3">
+          <span className="flex-1">
+            <span className="block text-[14px] font-semibold text-navy">Let small, clean jobs book a crew directly</span>
+            <span className="mt-0.5 block text-[12.5px] leading-snug text-muted-foreground">
+              Off, every tree job books a free arborist assessment instead — which is where the cross-sell
+              happens, and the only way to catch a protected tree before a crew is on the calendar.
+            </span>
           </span>
-        </span>
-        <Toggle
-          on={tree.allowDirectBooking}
-          onClick={() => store.setTree({ allowDirectBooking: !tree.allowDirectBooking })}
-          label="Direct booking"
-        />
+          <Toggle
+            on={tree.allowDirectBooking}
+            onClick={() => store.setTree({ allowDirectBooking: !tree.allowDirectBooking })}
+            label="Direct booking"
+          />
+        </div>
+
+        {tree.allowDirectBooking && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line-soft pt-3">
+            <span className="max-w-[42ch] text-[12.5px] leading-snug text-muted-foreground">
+              …but never above this height. Anything taller books an arborist no matter how clean it looks
+              from the ground.
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={10}
+                max={80}
+                step={5}
+                aria-label="Maximum height for direct booking, feet"
+                value={rates.directBookMaxHeightFt}
+                onChange={(e) => store.setTreeRates({ directBookMaxHeightFt: Number(e.target.value) || 30 })}
+                className="w-20 rounded-lg border border-line px-3 py-2 text-right text-[14px] font-bold tabular-nums text-navy focus:border-orange focus:outline-none"
+              />
+              <span className="text-[12px] font-semibold text-muted-foreground">ft</span>
+            </div>
+          </div>
+        )}
       </div>
     </Section>
   )
@@ -906,8 +1103,18 @@ function Text({
 }
 
 function Money({
-  label, value, step, suffix, onChange,
-}: { label: string; value: number; step: number; suffix?: string; onChange: (n: number) => void }) {
+  label, value, step, suffix, aria, onChange,
+}: {
+  label: string
+  value: number
+  step: number
+  suffix?: string
+  /** When the visible label repeats down a column ("Low", "Low", "Low"), give the
+   *  field a name that says WHICH row it belongs to. */
+  aria?: string
+  value2?: never
+  onChange: (n: number) => void
+}) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-[11.5px] font-semibold text-muted-foreground">{label}</span>
@@ -917,6 +1124,7 @@ function Money({
           type="number"
           min={0}
           step={step}
+          aria-label={aria ?? label}
           value={value}
           onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
           className="w-full bg-transparent py-2.5 text-right text-[14px] font-bold tabular-nums text-navy focus:outline-none"

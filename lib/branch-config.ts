@@ -38,6 +38,7 @@ import {
   type Program, type Addon, type Vertical, type TierLevel, type PriceBand,
 } from "@/lib/savatree-catalog"
 import { DEFAULT_PERMIT_POLICY, type PermitPolicy } from "@/lib/california-trees"
+import { DEFAULT_TREE_RATES, type TreeRateCard } from "@/lib/tree-care"
 
 export const CONFIG_KEY = "savatree-branch-config-v1"
 
@@ -69,10 +70,16 @@ export interface ProgramConfig {
 
 export interface TreeConfig {
   /**
-   * Scales every tree-work band. The catalog's height bands are national
-   * benchmarks; this is how the branch says "we're a Bay Area crew."
+   * Scales every tree-work band at once. The height bands below are what a tree
+   * costs; this is the branch saying "and we're a Bay Area crew." Two knobs
+   * because they answer different questions: the bands are the shape of the price
+   * curve, the index is the market it sits in. A manager who's just moved into a
+   * pricier labor market moves ONE number; a manager who's learned that his 60-80
+   * ft removals lose money moves one band.
    */
   rateIndex: number
+  /** The branch's tree rate card — base prices, job factors, stump, floors. */
+  rates: TreeRateCard
   /** Which tree jobs this branch's crews actually take. */
   jobs: Record<string, boolean>
   /** Off → even the smallest clean job books an arborist instead of a crew. */
@@ -163,6 +170,13 @@ export function defaultConfig(): BranchConfig {
     ),
     tree: {
       rateIndex: SAN_JOSE_RATE_INDEX,
+      rates: {
+        ...structuredClone(DEFAULT_TREE_RATES),
+        // A crew, a chipper, and a round trip across the South Bay cost the same
+        // whether the tree is twelve feet or thirty. Corporate ships no floor;
+        // a real branch has one.
+        minimumJobCharge: 450,
+      },
       jobs: Object.fromEntries(TREE_JOB_IDS.map((id) => [id, true])),
       // A protected-tree removal can't be booked blind anyway (see tree-care.ts),
       // and in a city this dense the arborist visit is the cross-sell. Off.
@@ -238,6 +252,7 @@ export function enabledTreeJobs(cfg: BranchConfig): string[] {
 export function treeOptions(cfg: BranchConfig) {
   return {
     rateIndex: cfg.tree.rateIndex,
+    rates: cfg.tree.rates,
     permitPolicy: cfg.permit,
     allowDirectBooking: cfg.tree.allowDirectBooking,
   }
@@ -259,7 +274,23 @@ export function mergeConfig(saved: unknown): BranchConfig {
   const cfg: BranchConfig = {
     ...base,
     identity: { ...base.identity, ...(s.identity ?? {}) },
-    tree: { ...base.tree, ...(s.tree ?? {}), jobs: { ...base.tree.jobs, ...(s.tree?.jobs ?? {}) } },
+    tree: {
+      ...base.tree,
+      ...(s.tree ?? {}),
+      jobs: { ...base.tree.jobs, ...(s.tree?.jobs ?? {}) },
+      rates: {
+        ...base.tree.rates,
+        ...(s.tree?.rates ?? {}),
+        // A saved band list replaces ours wholesale only if it's actually usable.
+        // An empty or malformed array would leave every tree priced at nothing.
+        heightBands:
+          Array.isArray(s.tree?.rates?.heightBands) && s.tree.rates.heightBands.length > 0
+            ? s.tree.rates.heightBands
+            : base.tree.rates.heightBands,
+        jobFactor: { ...base.tree.rates.jobFactor, ...(s.tree?.rates?.jobFactor ?? {}) },
+        stump: { ...base.tree.rates.stump, ...(s.tree?.rates?.stump ?? {}) },
+      },
+    },
     permit: {
       ...base.permit,
       ...(s.permit ?? {}),
@@ -323,6 +354,8 @@ export interface BranchStore {
   setTierRate: (programId: string, level: TierLevel, patch: Partial<TierRates>) => void
   setOrganicUplift: (programId: string, pct: number) => void
   setTree: (patch: Partial<TreeConfig>) => void
+  setTreeRates: (patch: Partial<TreeRateCard>) => void
+  setHeightBand: (index: number, patch: { maxFt?: number; low?: number; high?: number }) => void
   toggleTreeJob: (jobId: string) => void
   setPermit: (patch: Partial<PermitPolicy>) => void
   setSpeciesDbh: (species: string, dbh: number | null) => void
@@ -397,6 +430,28 @@ export function useBranchConfig(): BranchStore {
       })),
 
     setTree: (p) => patch((c) => ({ ...c, tree: { ...c.tree, ...p } })),
+
+    setTreeRates: (p) =>
+      patch((c) => ({ ...c, tree: { ...c.tree, rates: { ...c.tree.rates, ...p } } })),
+
+    setHeightBand: (index, p) =>
+      patch((c) => ({
+        ...c,
+        tree: {
+          ...c.tree,
+          rates: {
+            ...c.tree.rates,
+            heightBands: c.tree.rates.heightBands.map((b, i) =>
+              i === index
+                ? {
+                    maxFt: p.maxFt ?? b.maxFt,
+                    band: { low: p.low ?? b.band.low, high: p.high ?? b.band.high },
+                  }
+                : b,
+            ),
+          },
+        },
+      })),
 
     toggleTreeJob: (jobId) =>
       patch((c) => ({

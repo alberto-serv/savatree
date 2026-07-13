@@ -84,19 +84,38 @@ const PHASE_OF: Record<ScreenId, Phase> = {
 const DEFAULT_PHASES: Phase[] = ["Service", "Details", "Estimate", "Schedule", "Contact"]
 
 /**
- * The service tiles, in the order the widget offers them — tree work first,
- * because it's what a homeowner is looking at when they decide to call someone.
+ * The service tiles, in the order and the words the widget offers them in.
  *
  * This is deliberately its own list rather than VERTICALS in catalog order:
+ *  - Tree work leads. It's what a homeowner is looking at when they decide to
+ *    call someone.
  *  - Commercial is absent. The contact step already asks residential vs
  *    commercial, and an HOA or a campus does not scope itself through a
  *    six-question wizard — it gets a salesperson. The catalog keeps the
  *    commercial projects; the embed simply doesn't sell them.
  *  - The pairing matters. The grid fills row-wise, so each row reads as a pair:
- *    trees & lawn, plants & pests, deer & decor.
+ *    trees & lawn, shrubs & pests, deer & decor.
+ *
+ * The labels are the customer's words, not the catalog's. "Plant Health Care"
+ * is what SavATree calls the program internally; "Shrub Care" is what the
+ * homeowner came looking for. The vertical id underneath is unchanged, so the
+ * pricing engine never sees this rename.
  */
-const SERVICE_ORDER: Vertical[] = ["tree_work", "lawn", "plant_health", "pest", "deer", "landscape"]
-const SERVICES = SERVICE_ORDER.map(getVerticalMeta)
+const SERVICES: { id: Vertical; label: string }[] = [
+  { id: "tree_work", label: "Tree Care" },
+  { id: "lawn", label: "Lawn Care" },
+  { id: "plant_health", label: "Shrub Care" },
+  { id: "pest", label: "Insect & Tick Control" },
+  { id: "deer", label: "Deer Deterrent" },
+  { id: "landscape", label: "Decor & Holiday Lighting" },
+]
+
+const SERVICE_ORDER = SERVICES.map((s) => s.id)
+
+/** The tile's words, everywhere the widget speaks to the customer. */
+function serviceLabel(id: Vertical): string {
+  return SERVICES.find((s) => s.id === id)?.label ?? getVerticalMeta(id).label
+}
 
 /** Catalog projects the tree-care model can actually price. Everything else consults. */
 const TREE_JOBS: Record<string, TreeJob> = {
@@ -341,13 +360,13 @@ export function EmbedWizard() {
             {screen === "service" && (
               <Screen title="What can we help you with?">
                 <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                  {SERVICES.map((v) => {
-                    const Icon = v.icon
-                    const selected = vertical === v.id
+                  {SERVICES.map((s) => {
+                    const Icon = getVerticalMeta(s.id).icon
+                    const selected = vertical === s.id
                     return (
                       <button
-                        key={v.id}
-                        onClick={() => selectVertical(v.id)}
+                        key={s.id}
+                        onClick={() => selectVertical(s.id)}
                         aria-pressed={selected}
                         className={`flex items-center gap-3 rounded-xl px-4 py-4 text-left transition-all duration-150 ${
                           selected
@@ -357,7 +376,7 @@ export function EmbedWizard() {
                       >
                         <Icon className={`h-6 w-6 shrink-0 ${selected ? "text-white" : "text-navy"}`} />
                         <span className="text-[13.5px] font-extrabold uppercase leading-tight tracking-[0.04em]">
-                          {v.label}
+                          {s.label}
                         </span>
                       </button>
                     )
@@ -367,7 +386,7 @@ export function EmbedWizard() {
             )}
 
             {screen === "project" && vertical && (
-              <Screen title={`${getVerticalMeta(vertical).label} — what do you need?`}>
+              <Screen title={`${serviceLabel(vertical)} — what do you need?`}>
                 <div className="grid grid-cols-1 gap-2.5">
                   {projectsForVertical(vertical).map((p) => {
                     const selected = projectId === p.id

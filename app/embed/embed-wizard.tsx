@@ -347,7 +347,13 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
     isLast
       ? setSubmitted(true)
       : setStep((s) => Math.min(s + 1, screensRef.current.length - 1))
-  const back = () => setStep((s) => Math.max(0, s - 1))
+
+  // With history managed, the widget's own Back button and the browser's are the
+  // same button — walking the history is what keeps them from disagreeing. Inside
+  // a host's iframe there is no wizard history to walk, so it moves the step
+  // directly. See the history effect below.
+  const back = () =>
+    ownsHistory ? window.history.back() : setStep((s) => Math.max(0, s - 1))
 
   /**
    * A single-choice question answers itself: tapping the tile IS the decision, and
@@ -384,6 +390,63 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
     // out of a flow they're already halfway through.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /**
+   * On its own page, /embed IS the page — so the browser's Back button has to mean
+   * "back one question," not "leave the estimator." A wizard that throws away six
+   * answers because someone reached for the button their thumb already knows is a
+   * wizard that gets abandoned.
+   *
+   * So each step gets a history entry, and Back walks them.
+   *
+   * ONLY when we're the top-level document. Framed into a customer's site, this
+   * history belongs to THEM: pushing entries from inside the iframe would hijack
+   * their Back button, so a visitor trying to leave the article they were reading
+   * would instead reverse through our questions. There, Back stays theirs and the
+   * widget's own Back button moves the step directly.
+   */
+  // `config` means we're being previewed inside another app (/config's console),
+  // whose history is no more ours to push onto than a host site's. Only the
+  // standalone, unframed /embed owns its back stack.
+  const ownsHistory =
+    !config && typeof window !== "undefined" && window.parent === window
+  const fromPopstate = useRef(false)
+
+  useEffect(() => {
+    if (!ownsHistory) return
+
+    const onPop = (e: PopStateEvent) => {
+      const st = e.state as { w?: number; done?: boolean } | null
+      // No wizard state on this entry → it's the page we arrived from. Let go.
+      if (!st || typeof st.w !== "number") return
+      fromPopstate.current = true
+      setStep(st.w)
+      setSubmitted(Boolean(st.done))
+    }
+
+    window.history.replaceState({ w: 0, done: false }, "")
+    window.addEventListener("popstate", onPop)
+    return () => window.removeEventListener("popstate", onPop)
+  }, [ownsHistory])
+
+  useEffect(() => {
+    if (!ownsHistory) return
+
+    // A popstate ALREADY moved the browser. Pushing here would re-add the entry we
+    // just left, and the Back button would appear to do nothing.
+    if (fromPopstate.current) {
+      fromPopstate.current = false
+      return
+    }
+
+    // Push only if this screen isn't already the entry we're standing on. Counting
+    // mounts instead would double-push under React's dev double-invoke, and every
+    // duplicate entry is a Back press that visibly does nothing.
+    const here = window.history.state as { w?: number; done?: boolean } | null
+    if (here && here.w === step && Boolean(here.done) === submitted) return
+
+    window.history.pushState({ w: step, done: submitted }, "")
+  }, [step, submitted, ownsHistory])
 
   // An iframe can't size itself. Tell the parent what we need; /embed/demo shows
   // the three lines of host code that listen for it.

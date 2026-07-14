@@ -573,8 +573,7 @@ function TreeSection({ store }: { store: BranchStore }) {
           <div>
             <p className="text-[14px] font-bold text-navy">Market index</p>
             <p className="mt-0.5 max-w-[46ch] text-[12.5px] leading-snug text-muted-foreground">
-              Scales every band above at once. The rates ship as national benchmarks and a Bay Area
-              crew-hour isn&apos;t an Ohio crew-hour. Tune it against jobs you&apos;ve actually closed.
+              Scales every band above at once. Tune it against jobs you&apos;ve actually closed.
             </p>
           </div>
           <div className="flex items-center gap-2">

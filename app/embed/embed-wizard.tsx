@@ -754,11 +754,8 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
 
             {screen === "estimate" && treeEstimate && (
               <Screen title="Your estimated range">
-                {/* Always an assessment now — see the allowDirectBooking note
-                    above — so the eyebrow says so without branching. */}
                 <Band
                   price={bandText(treeEstimate.estimate)}
-                  eyebrow={`±${treeEstimate.spreadPct}% · An arborist confirms this on site`}
                   lines={[
                     ...treeEstimate.lines.map((l) => `${l.label} — ${bandText(l.band)}`),
                     // A floored price is a suspiciously round number unless you say
@@ -1134,11 +1131,11 @@ function FinancingToggle({ checked, onToggle }: { checked: boolean; onToggle: ()
   )
 }
 
-function Band({ price, eyebrow, lines }: { price: string; eyebrow: string; lines: string[] }) {
+function Band({ price, eyebrow, lines }: { price: string; eyebrow?: string; lines: string[] }) {
   return (
     <div className="rounded-[16px] bg-white p-6 text-center shadow-brand-sm">
-      <p className="eyebrow">{eyebrow}</p>
-      <p className="mt-2 text-[clamp(30px,6vw,42px)] font-extrabold leading-none tracking-[-0.02em] text-navy">{price}</p>
+      {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+      <p className={`${eyebrow ? "mt-2 " : ""}text-[clamp(30px,6vw,42px)] font-extrabold leading-none tracking-[-0.02em] text-navy`}>{price}</p>
       {lines.length > 0 && (
         <ul className="mt-5 space-y-1.5 border-t border-line pt-4 text-left">
           {lines.map((l, i) => (

@@ -534,7 +534,6 @@ function TreeSection({ store }: { store: BranchStore }) {
       title="Tree care"
       blurb="Your rate card, your market, and which jobs your crews take."
       icon={TreePine}
-      defaultOpen
     >
       {/* ── 1. What a tree costs, by height. The actual rate card. ── */}
       <p className="mb-1 text-[12px] font-bold uppercase tracking-[0.1em] text-muted-foreground">

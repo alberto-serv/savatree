@@ -30,7 +30,7 @@ import * as SliderPrimitive from "@radix-ui/react-slider"
 import {
   ArrowRight, ArrowLeft, Check, Phone, Minus, Plus, AlertTriangle,
   Info, RefreshCw, Sparkles, ClipboardCheck, Video, MapPin,
-  ChevronLeft, ChevronRight, ShieldAlert, CalendarClock, Leaf, ChevronDown,
+  ChevronLeft, ChevronRight, ShieldAlert, CalendarClock, Leaf, ChevronDown, CreditCard,
 } from "lucide-react"
 import {
   getAvailableDates, isSameDay, formatVisitDate, slotsFor,
@@ -198,6 +198,9 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
   const [contact, setContact] = useState({
     audience: "residential", firstName: "", lastName: "", email: "", phone: "", address: "", sms: false,
   })
+  // Not a pricing input — the model never sees it. It rides along to the arborist
+  // so they arrive ready to talk terms instead of discovering the question on site.
+  const [financing, setFinancing] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
   const cardRef = useRef<HTMLDivElement>(null)
@@ -481,6 +484,7 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
           visitType={visitType}
           date={date}
           slot={slot}
+          financing={financing}
           summary={
             planQuote ? `${planQuote.tierName} · ${bandText(planQuote.annual)}/yr`
             : treeEstimate ? bandText(treeEstimate.estimate)
@@ -792,6 +796,11 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
                   </p>
                 )}
 
+                {/* Asked next to the number, because the number is what makes
+                    somebody want to hear about financing. Ticking it changes
+                    nothing about the price — it tells the arborist to bring it up. */}
+                <FinancingToggle checked={financing} onToggle={() => setFinancing(!financing)} />
+
                 <Disclaimer text={treeEstimate.disclaimer} />
               </Screen>
             )}
@@ -1100,6 +1109,31 @@ function Tag({ tone, inverted }: { tone: "urgent" | "instant" | "consult"; inver
   )
 }
 
+/** Interest, not an application. Nothing here is priced, and nothing is promised. */
+function FinancingToggle({ checked, onToggle }: { checked: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      aria-pressed={checked}
+      className={`mt-3 flex w-full items-start gap-3 rounded-[14px] border-2 p-5 text-left transition-all ${
+        checked ? "border-orange bg-brand-select" : "border-transparent bg-white hover:border-[#c7d6ca]"
+      }`}
+    >
+      <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2 ${
+        checked ? "border-orange bg-orange text-white" : "border-line bg-white"
+      }`}>
+        {checked ? <Check className="h-4 w-4" /> : null}
+      </span>
+      <span>
+        <span className="block text-[15px] font-bold text-navy">I&apos;m interested in financing</span>
+        <span className="mt-0.5 block text-[13px] leading-snug text-muted-foreground">
+          We&apos;ll have your arborist go over monthly payment options at the visit. No credit check to ask.
+        </span>
+      </span>
+    </button>
+  )
+}
+
 function Band({ price, eyebrow, lines }: { price: string; eyebrow: string; lines: string[] }) {
   return (
     <div className="rounded-[16px] bg-white p-6 text-center shadow-brand-sm">
@@ -1312,7 +1346,7 @@ function Emergency({ phone }: { phone: string }) {
 }
 
 function Confirmation({
-  contact, phone, visitType, date, slot, summary,
+  contact, phone, visitType, date, slot, summary, financing,
 }: {
   contact: { firstName: string; email: string; address: string }
   phone: string
@@ -1320,6 +1354,7 @@ function Confirmation({
   date: Date | null
   slot: TimeSlot | null
   summary: string | null
+  financing: boolean
 }) {
   const video = visitType === "video"
   return (
@@ -1355,6 +1390,13 @@ function Confirmation({
             </div>
           )}
         </div>
+      )}
+
+      {financing && (
+        <p className="mx-auto mt-4 flex max-w-[40ch] items-start justify-center gap-2 text-[13px] font-semibold text-orange-deep">
+          <CreditCard className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Your arborist will go over monthly payment options at the visit.</span>
+        </p>
       )}
 
       <p className="mt-6 text-[13px] text-muted-foreground">

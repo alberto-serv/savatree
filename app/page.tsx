@@ -813,6 +813,10 @@ function TreeEstimator({ project, job }: { project: Project; job: TreeJob }) {
     species: "unknown",
   })
 
+  // Not a pricing input — the model never sees it. It rides along to the arborist
+  // so they arrive ready to talk terms instead of discovering the question on site.
+  const [financing, setFinancing] = useState(false)
+
   // Keep the job in sync when the customer switches between pruning/removal/cabling.
   const inputs: TreeInputs = { ...t, job }
   const set = <K extends keyof TreeInputs>(k: K, v: TreeInputs[K]) => setT((p) => ({ ...p, [k]: v }))
@@ -842,6 +846,7 @@ function TreeEstimator({ project, job }: { project: Project; job: TreeJob }) {
       lines: est.lines.map((l) => `${l.label} — ${bandText(l.band)}`).join(" | "),
       notes: est.needsArboristBecause.join(" | "),
       confidence: est.confidence,
+      financing: String(financing),
     })
     router.push(`/checkout?${params.toString()}`)
   }
@@ -979,6 +984,29 @@ function TreeEstimator({ project, job }: { project: Project; job: TreeJob }) {
               ))}
             </ul>
           )}
+
+          {/* Asked next to the number, because the number is what makes somebody
+              want to hear about financing. Ticking it changes nothing about the
+              price — it just tells the arborist to bring it up. */}
+          <div className="mt-5 border-t border-[#dbe7dd] pt-4">
+            <button
+              onClick={() => setFinancing(!financing)}
+              aria-pressed={financing}
+              className={`flex w-full items-start gap-3 rounded-xl border-2 p-4 text-left transition-all ${
+                financing ? "border-orange bg-brand-select" : "border-line bg-white hover:border-[#c7d6ca]"
+              }`}
+            >
+              <span className={`flex h-6 w-6 items-center justify-center rounded-md border-2 shrink-0 mt-0.5 ${financing ? "border-orange bg-orange text-white" : "border-line bg-white"}`}>
+                {financing ? <Check className="h-4 w-4" /> : null}
+              </span>
+              <span>
+                <span className="block font-semibold text-navy text-[15px]">I&apos;m interested in financing</span>
+                <span className="block text-[13px] text-muted-foreground mt-0.5">
+                  We&apos;ll have your arborist go over monthly payment options at the visit. No credit check to ask.
+                </span>
+              </span>
+            </button>
+          </div>
         </div>
       </div>
 

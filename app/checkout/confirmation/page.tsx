@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import Image from "next/image"
-import { CalendarDays, Clock, MapPin, RefreshCw } from "lucide-react"
+import { CalendarDays, Clock, MapPin, RefreshCw, CreditCard } from "lucide-react"
 import { money } from "@/lib/savatree-services"
 
 export default function ConfirmationPage() {
@@ -29,6 +29,7 @@ export default function ConfirmationPage() {
     phone: "",
     visitDate: "",
     visitTime: "",
+    financing: "false",
   })
 
   useEffect(() => {
@@ -179,6 +180,13 @@ export default function ConfirmationPage() {
                   <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-orange-deep">
                     <RefreshCw className="h-3.5 w-3.5" />
                     Renews automatically each year · cancel anytime
+                  </p>
+                )}
+
+                {data.financing === "true" && (
+                  <p className="mt-4 pt-3 border-t border-line-soft flex items-start gap-1.5 text-xs font-semibold text-orange-deep">
+                    <CreditCard className="h-4 w-4 shrink-0" />
+                    Financing requested — your arborist will go over monthly payment options at the visit.
                   </p>
                 )}
               </div>

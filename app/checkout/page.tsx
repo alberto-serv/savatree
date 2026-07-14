@@ -43,6 +43,7 @@ export default function CheckoutPage() {
     lines: [] as string[],
     notes: [] as string[], // what only an arborist can judge on site
     confidence: "",
+    financing: false, // customer asked to hear about payment options
   })
 
   const [serviceAddress, setServiceAddress] = useState("")
@@ -120,6 +121,7 @@ export default function CheckoutPage() {
       lines: list("lines"),
       notes: list("notes"),
       confidence: get("confidence"),
+      financing: get("financing") === "true",
     })
 
     const addr = get("address")
@@ -216,6 +218,7 @@ export default function CheckoutPage() {
       lines: quote.lines.join(" | "),
       notes: quote.notes.join(" | "),
       confidence: quote.confidence,
+      financing: String(quote.financing),
       addOns: [...quote.addOns, ...extraAddOnLabels].join(" | "),
       address: [serviceAddress, addressLine2.trim()].filter(Boolean).join(", "),
       customerName: `${customerInfo.firstName} ${customerInfo.lastName}`.trim(),
@@ -347,6 +350,14 @@ export default function CheckoutPage() {
                   <p className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-orange-deep">
                     <RefreshCw className="h-3.5 w-3.5" />
                     Renews automatically each year · cancel anytime
+                  </p>
+                )}
+                {/* They ticked it on the estimate. Show it back to them so it's
+                    clearly on the record, not swallowed by the handoff. */}
+                {quote.financing && (
+                  <p className="mt-3 flex items-start gap-1.5 text-[12.5px] font-semibold text-orange-deep">
+                    <BadgeCheck className="h-4 w-4 shrink-0 mt-px" />
+                    Financing requested — your arborist will go over monthly payment options at the visit.
                   </p>
                 )}
                 <p className="text-[11.5px] text-muted-foreground mt-3 italic">

@@ -25,10 +25,9 @@
 
 import { useState, useMemo, useEffect, useRef } from "react"
 import Image from "next/image"
-import Link from "next/link"
 import {
   Eye, SlidersHorizontal, Monitor, Smartphone, GripVertical, RotateCcw, Check,
-  ChevronDown, TreePine, Building2, ShieldAlert, Phone, ExternalLink, Info,
+  ChevronDown, TreePine, Building2, ShieldAlert, Phone, Info,
 } from "lucide-react"
 import { EmbedWizard } from "@/app/embed/embed-wizard"
 import {
@@ -165,27 +164,20 @@ function PreviewPane({
         </p>
       </div>
 
-      {/* The real widget, not a mockup of it. */}
+      {/* The real widget, not a mockup of it. The card caps its own width, so it
+          has to be centred inside the device frame — left to itself it hugs the
+          left edge and dumps the slack on the right. */}
       <div className="flex justify-center">
         <div
           className={`w-full rounded-[24px] bg-navy-deep/95 p-4 shadow-brand transition-all duration-300 ${
             device === "mobile" ? "max-w-[420px]" : "max-w-[760px]"
           }`}
         >
-          <div className="rounded-[18px] bg-white/5 p-2">
+          <div className="flex justify-center rounded-[18px] bg-white/5 p-2">
             <EmbedWizard config={store.cfg} />
           </div>
         </div>
       </div>
-
-      <p className="mt-6 text-center text-[12.5px] text-muted-foreground">
-        Customers reach this page at{" "}
-        <Link href="/embed" className="font-semibold text-orange-deep hover:underline">
-          /embed
-          <ExternalLink className="ml-1 inline h-3 w-3" />
-        </Link>{" "}
-        — embedded on your branch site or linked directly.
-      </p>
     </div>
   )
 }

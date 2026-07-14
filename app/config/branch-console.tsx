@@ -122,11 +122,21 @@ function ConsoleHeader({ store }: { store: BranchStore }) {
     <header className="border-b border-line bg-white">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4">
         <div className="flex items-center gap-4">
-          <Image src="/images/savatree-logo.svg" alt="SavATree" width={132} height={30} priority />
-          <span className="hidden h-8 w-px bg-line sm:block" />
+          {/* The mark is a tall SVG. Without a height class it renders at its own
+              intrinsic ratio and towers over the branch name beside it — pin the
+              height and let the width follow, exactly as the site header does. */}
+          <Image
+            src="/images/savatree-logo.svg"
+            alt="SavATree"
+            width={160}
+            height={55}
+            priority
+            className="h-[38px] w-auto"
+          />
+          <span className="hidden h-9 w-px shrink-0 bg-line sm:block" />
           <div>
             <p className="text-[15px] font-bold leading-tight text-navy">{identity.branchName}</p>
-            <p className="text-[12.5px] text-muted-foreground">
+            <p className="mt-0.5 text-[12.5px] leading-tight text-muted-foreground">
               {identity.city} · {identity.phone}
             </p>
           </div>

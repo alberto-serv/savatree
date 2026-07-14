@@ -757,7 +757,7 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
                 <Band
                   price={bandText(treeEstimate.estimate)}
                   lines={[
-                    ...treeEstimate.lines.map((l) => `${l.label} — ${bandText(l.band)}`),
+                    ...treeEstimate.lines.map((l) => `${l.label}: ${bandText(l.band)}`),
                     // A floored price is a suspiciously round number unless you say
                     // why it's round. The model already wrote the sentence.
                     ...(treeEstimate.minimumApplied
@@ -1308,7 +1308,7 @@ function ProtectedTreePanel({ permit }: { permit: PermitAssessment }) {
           {permit.weeks[0] === 0
             ? `Expect ${permit.weeks[1]} weeks or less for city sign-off`
             : `Expect ${permit.weeks[0]}–${permit.weeks[1]} weeks for city review`}
-          {permit.mayBeDenied && " — and it can be refused"}
+          {permit.mayBeDenied && ", and it can be refused"}
         </p>
       )}
 

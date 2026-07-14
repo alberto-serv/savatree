@@ -792,7 +792,7 @@ const LEAN_CHOICES = [
 ] as const
 
 const CONFIDENCE_COPY: Record<Confidence, { label: string; blurb: string }> = {
-  high: { label: "Tight estimate", blurb: "Straightforward job — this range should hold." },
+  high: { label: "Tight estimate", blurb: "Straightforward job, so this range should hold." },
   medium: { label: "Estimated range", blurb: "A few things an arborist has to see before we can narrow it." },
   low: { label: "Wide range", blurb: "Real unknowns here. We'd rather be honest than precise." },
 }
@@ -843,7 +843,7 @@ function TreeEstimator({ project, job }: { project: Project; job: TreeJob }) {
         inputs.diameterInches ? `${inputs.diameterInches}" trunk` : null,
         CONDITION_CHOICES.find((c) => c.value === inputs.condition)?.label.toLowerCase(),
       ].filter(Boolean).join(" · "),
-      lines: est.lines.map((l) => `${l.label} — ${bandText(l.band)}`).join(" | "),
+      lines: est.lines.map((l) => `${l.label}: ${bandText(l.band)}`).join(" | "),
       notes: est.needsArboristBecause.join(" | "),
       confidence: est.confidence,
       financing: String(financing),

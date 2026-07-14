@@ -164,7 +164,7 @@ export const DEFAULT_TREE_RATES: TreeRateCard = {
 const ACCESS: Record<NonNullable<TreeInputs["access"]>, Factor> = {
   open: { m: 1.0, u: 0.0, note: null },
   moderate: { m: 1.25, u: 0.08, note: "Limited equipment access" },
-  tight: { m: 1.8, u: 0.22, note: "Crane or full climb likely — biggest single cost driver" },
+  tight: { m: 1.8, u: 0.22, note: "Crane or full climb likely, the biggest single cost driver" },
 };
 
 const PROXIMITY: Record<NonNullable<TreeInputs["proximity"]>, Factor> = {
@@ -183,7 +183,7 @@ const CONDITION: Record<NonNullable<TreeInputs["condition"]>, Factor> = {
   dead_or_decayed: {
     m: 1.4,
     u: 0.28,
-    note: "Internal decay can't be assessed from the ground — arborist required",
+    note: "Internal decay can't be assessed from the ground, so an arborist is required",
   },
 };
 
@@ -221,7 +221,7 @@ export const DISCLAIMER_BOOKABLE =
   "Estimate only. Final pricing is confirmed by your crew on site and may vary with access, species, and local branch rates.";
 
 export const DISCLAIMER_ASSESSMENT =
-  "This is an estimated range, not a firm price. Internal decay, true drop zone, and equipment access can only be judged on site — your arborist will confirm the final number before any work begins.";
+  "This is an estimated range, not a firm price. Internal decay, true drop zone, and equipment access can only be judged on site. Your arborist will confirm the final number before any work begins.";
 
 // ─────────────────────────────────────────────────────────────────
 // Helpers
@@ -340,7 +340,7 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
   };
 
   lines.push({
-    label: `${JOB_LABEL[i.job]} — ${count} tree${count === 1 ? "" : "s"}, ${i.heightFt} ft`,
+    label: `${JOB_LABEL[i.job]} (${count} tree${count === 1 ? "" : "s"}, ${i.heightFt} ft)`,
     band: { low: round(treeWork.low), high: round(treeWork.high) },
   });
 
@@ -354,7 +354,7 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
     const stump = { low: rawStump.low * rateIndex, high: rawStump.high * rateIndex };
     total = { low: total.low + stump.low, high: total.high + stump.high };
     lines.push({
-      label: `Stump grinding — ${dbh}" diameter${count > 1 ? ` × ${count}` : ""}`,
+      label: `Stump grinding (${dbh}" diameter${count > 1 ? ` × ${count}` : ""})`,
       band: { low: round(stump.low), high: round(stump.high) },
     });
   }
@@ -386,7 +386,7 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
     // Say it out loud rather than letting a suspiciously round number sit there
     // unexplained. A crew and a chipper cost the same for a small tree.
     ...(minimumApplied
-      ? [`Our minimum for a tree job is $${round(floor)} — a crew and a truck cost the same for a small tree.`]
+      ? [`Our minimum for a tree job is $${round(floor)}. A crew and a truck cost the same for a small tree.`]
       : []),
     ...(permit?.reasons ?? []),
   ];
@@ -399,7 +399,7 @@ export function estimateTreeWork(i: TreeInputs, opts: EstimateOptions = {}): Tre
     ...(permit?.isProtected
       ? [
           permit.basis === "unidentified"
-            ? "Identifying the species — it decides whether this needs a city permit at all"
+            ? "Identifying the species, which decides whether this needs a city permit at all"
             : "Confirming your city's tree ordinance and filing the permit on your behalf",
         ]
       : []),
@@ -454,7 +454,7 @@ function upsellFor(i: TreeInputs): string | null {
   const condition = i.condition ?? "healthy";
 
   if (i.job === "removal" && condition !== "dead_or_decayed") {
-    return "Trees this size are often savable. Your arborist will assess whether treatment is an option before removal — the assessment is free.";
+    return "Trees this size are often savable. Your arborist will assess whether treatment is an option before removal, and the assessment is free.";
   }
   if (i.job === "pruning" && condition === "declining") {
     return "Declining canopy is often a soil or pest issue. Ask your arborist about a Plant Health Care plan alongside the pruning.";

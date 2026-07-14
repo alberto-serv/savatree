@@ -34,7 +34,7 @@
 import type { PriceBand, TreeJob } from "./tree-care";
 
 export const CA_ORDINANCE_DISCLAIMER =
-  "Tree protection in California is set by your city or county, not the state — thresholds, fees, and review times vary by jurisdiction, and some parcels fall under both a city and a county ordinance. This is an estimate of what the permit process typically involves, not a legal determination. Your ISA Certified Arborist confirms the rules for your address and files on your behalf.";
+  "Tree protection in California is set by your city or county, not the state. Thresholds, fees, and review times vary by jurisdiction, and some parcels fall under both a city and a county ordinance. This is an estimate of what the permit process typically involves, not a legal determination. Your ISA Certified Arborist confirms the rules for your address and files on your behalf.";
 
 // ─────────────────────────────────────────────────────────────────
 // Species
@@ -214,7 +214,7 @@ export function assessProtection(
 
   if (basis === "unidentified") {
     reasons.push(
-      `We don't know what this tree is yet. If it's a native oak or a redwood, it's almost certainly protected — your arborist identifies it on the first visit.`,
+      `We don't know what this tree is yet. If it's a native oak or a redwood, it's almost certainly protected. Your arborist identifies it on the first visit.`,
     );
   } else if (bySpecies && copy) {
     reasons.push(
@@ -223,7 +223,7 @@ export function assessProtection(
   }
   if (byHeritage && !bySpecies) {
     reasons.push(
-      `At ${dbhInches}" across, this is heritage-tree size — ${where} protect any species once it gets this big.`,
+      `At ${dbhInches}" across, this is heritage-tree size, and ${where} protect any species once it gets this big.`,
     );
   }
 
@@ -236,7 +236,7 @@ export function assessProtection(
       species,
       reasons: [
         ...reasons,
-        "Cabling preserves the tree, so no removal permit is involved — and on a protected tree it's often exactly what the city would rather you did.",
+        "Cabling preserves the tree, so no removal permit is involved, and on a protected tree it's often exactly what the city would rather you did.",
       ],
       cost: null,
       lines: [],
@@ -252,7 +252,7 @@ export function assessProtection(
       species,
       reasons: [
         ...reasons,
-        "Routine pruning is usually fine, but many ordinances cap how much canopy you may take off a protected tree — and heavy pruning can itself need a permit.",
+        "Routine pruning is usually fine, but many ordinances cap how much canopy you may take off a protected tree, and heavy pruning can itself need a permit.",
       ],
       cost: { ...policy.pruningPermit },
       lines: [{ label: "Pruning permit, if your city requires one", band: { ...policy.pruningPermit } }],
@@ -277,7 +277,7 @@ export function assessProtection(
       species,
       reasons: [
         ...reasons,
-        "Because it's dead or hazardous, most cities allow an expedited — sometimes exempt — removal. Your arborist documents the condition; the city won't take your word for it.",
+        "Because it's dead or hazardous, most cities allow an expedited (sometimes exempt) removal. Your arborist documents the condition; the city won't take your word for it.",
       ],
       cost: { ...policy.hazardDocumentation },
       lines,
@@ -317,7 +317,7 @@ export function assessProtection(
     species,
     reasons: [
       ...reasons,
-      "Removal needs a city permit, which means an arborist report and a review period — plan on weeks, not days.",
+      "Removal needs a city permit, which means an arborist report and a review period. Plan on weeks, not days.",
       ...(mayBeDenied
         ? [
             `A healthy protected ${copy?.noun ?? "tree"} is often DENIED. Cities want it pruned or treated, not removed. Your arborist will tell you honestly whether this application has a chance before you pay for one.`,
@@ -415,7 +415,7 @@ export function speciesAdvisory(
 export function protectionUpsell(a: PermitAssessment): string | null {
   if (!a.isProtected) return null;
   if (a.mayBeDenied) {
-    return "If the city denies the removal — and for a healthy protected tree that's common — the way forward is usually pruning plus a Plant Health Care plan. Your arborist will price both, so you're not stuck waiting on a permit to find out.";
+    return "If the city denies the removal (and for a healthy protected tree that's common), the way forward is usually pruning plus a Plant Health Care plan. Your arborist will price both, so you're not stuck waiting on a permit to find out.";
   }
   if (a.basis === "unidentified") {
     return "Identifying the species is the first thing your arborist does, and it decides everything downstream: permit or no permit, weeks or days.";

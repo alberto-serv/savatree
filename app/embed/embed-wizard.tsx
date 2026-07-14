@@ -830,14 +830,7 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
                     return (
                       <button
                         key={o.value}
-                        onClick={() => {
-                          chooseVisit(o.value)
-                          // Picking video on a job an arborist has to see in person
-                          // raises a caveat right here. Don't skip past it.
-                          const caveat =
-                            o.value === "video" && (treeEstimate?.needsArboristBecause.length ?? 0) > 0
-                          chose(!caveat)
-                        }}
+                        onClick={() => { chooseVisit(o.value); chose() }}
                         aria-pressed={selected}
                         // A <button> vertically centers its content, which floats the
                         // shorter card's text out of line with the taller one. Be explicit.
@@ -863,17 +856,6 @@ export function EmbedWizard({ config }: { config?: BranchConfig } = {}) {
                     )
                   })}
                 </div>
-                {/* Some work simply cannot be quoted through a phone camera. Say
-                    so here rather than wasting the customer's call. */}
-                {visitType === "video" && treeEstimate && treeEstimate.needsArboristBecause.length > 0 && (
-                  <p className="mt-4 flex items-start gap-2 rounded-xl bg-gold/10 p-4 text-[12.5px] leading-relaxed text-navy">
-                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-gold-deep" />
-                    <span>
-                      Heads up: on a job like this your arborist will likely need to come out in person before
-                      quoting a firm price. The video call is still the fastest way to get started.
-                    </span>
-                  </p>
-                )}
               </Screen>
             )}
 
